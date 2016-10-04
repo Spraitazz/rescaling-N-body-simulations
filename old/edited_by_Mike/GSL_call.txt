@@ -1,0 +1,2 @@
+gcc -o driver.o driver.c -lm -L/shome/jonasp/usr/lib/ -lgsl -lgslcblas -std=c11
+GSL_RNG_TYPE="taus" GSL_RNG_SEED=123  ./driver.o
