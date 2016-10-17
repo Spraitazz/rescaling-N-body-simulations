@@ -287,3 +287,63 @@ int lin_reg_test() {
 	fclose(f);
 	return 0;
 }
+
+//works
+int linalg_test() {
+	double margin, determinant;	
+	int signum;
+	margin = 1e-6;
+	
+	gsl_matrix *M = gsl_matrix_alloc(4,4);
+	gsl_vector *f = gsl_vector_alloc(4);
+	gsl_vector *multipoles = gsl_vector_alloc(4);
+
+	gsl_matrix_set(M, 0, 0, 0.18);
+	gsl_matrix_set(M, 0, 1, 0.60);
+	gsl_matrix_set(M, 0, 2, 0.57);
+	gsl_matrix_set(M, 0, 3, 0.96);
+	
+	gsl_matrix_set(M, 1, 0, 0.41);
+	gsl_matrix_set(M, 1, 1, 0.24);
+	gsl_matrix_set(M, 1, 2, 0.99);
+	gsl_matrix_set(M, 1, 3, 0.58);
+	
+	gsl_matrix_set(M, 2, 0, 0.14);
+	gsl_matrix_set(M, 2, 1, 0.30);
+	gsl_matrix_set(M, 2, 2, 0.97);
+	gsl_matrix_set(M, 2, 3, 0.66);
+	
+	gsl_matrix_set(M, 3, 0, 0.51);
+	gsl_matrix_set(M, 3, 1, 0.13);
+	gsl_matrix_set(M, 3, 2, 0.19);
+	gsl_matrix_set(M, 3, 3, 0.85);
+	
+	gsl_vector_set(f, 0, 1.0);
+	gsl_vector_set(f, 1, 2.0);
+	gsl_vector_set(f, 2, 3.0);
+	gsl_vector_set(f, 3, 4.0);
+	
+	//https://www.gnu.org/software/gsl/manual/html_node/Linear-Algebra-Examples.html#Linear-Algebra-Examples		
+	gsl_permutation * p = gsl_permutation_alloc(4);
+
+	gsl_linalg_LU_decomp(M, p, &signum);
+	
+	determinant = gsl_linalg_LU_det(M, signum);
+	
+	//only has a meaningful value for a nonzero determinant
+	if (determinant > margin || determinant < -margin) {
+		gsl_linalg_LU_solve(M, p, f, multipoles);
+		printf("ans: \n %lf \n %lf \n %lf \n %lf \n", gsl_vector_get(multipoles, 0), gsl_vector_get(multipoles, 1), gsl_vector_get(multipoles, 2), gsl_vector_get(multipoles, 3));
+	} else {
+		printf("det: %lf \n", determinant);
+	}
+	
+	gsl_permutation_free(p);
+		
+	
+	gsl_matrix_free(M);
+	gsl_vector_free(f);		
+	gsl_vector_free(multipoles);
+
+
+}

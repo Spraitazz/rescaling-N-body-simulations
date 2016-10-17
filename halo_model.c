@@ -31,6 +31,35 @@ int set_halo_params(double halo_mass) {
 	return 0;
 }
 
+int print_cdm(char outFile[]) {
+	Mmin = 5e12;
+	Mmax = 1e15;
+	int bins = 200;
+	FILE *f = fopen(outFile, "w");
+	double dm = (Mmax - Mmin)/(double)(bins-1);
+	double m, cdm1, cdm2, cdm3;
+	for (int i = 0; i < bins; i++) {
+		m = Mmin + (double)i * dm;
+		z_current_global = 0.1;
+		set_halo_params(m);
+		cdm1 = cdm_global;
+		
+		z_current_global = 0.6;
+		set_halo_params(m);
+		cdm2 = cdm_global;
+		
+		z_current_global = 1.2;
+		set_halo_params(m);
+		cdm3 = cdm_global;
+		
+		fprintf(f, "%le \t %le \t %le \t %le \n", m, cdm1, cdm2, cdm3);
+	
+	}
+	fclose(f);
+	return 0;
+
+}
+
 //cumulative sum in rho NFW up to r, given a halo of mass m, r here in units of rs
 double cumsum_nfw(double r) {	
 	return (log(1.0 + r) - r*pow(1.0 + r, -1.0))*pow(log(1.0 + cdm_global) - cdm_global/(1.0 + cdm_global), -1.0);		
@@ -98,60 +127,67 @@ double ukm_nfw_profile(double k){
     return Interim;
 }
 
-double halo_model_Pk(double k, double shot_noise, int redshift_space, int order, SplineInfo_Extended *Pk_spline){
+double halo_model_Pk(double k, double shot_noise, double twohalo_prefactor, int redshift_space, int order, SplineInfo_Extended *Pk_spline) {
    
     double interim = shot_noise;  
   
 	//one-halo term                                      				
-	interim *= pow(ukm_nfw_profile(k), 2.0);
-
-	//two-halo term
-	//interim += splint_Pk(Pk_spline, k) * volume * exp(-k*k*R_nl*R_nl);
+	//interim *= pow(ukm_nfw_profile(k), 2.0);	
 	
 	//double onehalo_term = shot_noise * pow(ukm_nfw_profile(k), 2.0);
-	//double twohalo_term = splint_Pk(Pk_current, k) * volume * exp(-k*k*R_nl*R_nl);	 
+	double twohalo_term = splint_Pk(Pk_spline, k) * volume * exp(-k*k*R_nl*R_nl) * twohalo_prefactor;	 
 	
 	//2halo + redshift space
 	if (redshift_space == REDSHIFT_SPACE) {
 		if (order == 0) {
 			
 			//beta = fg because no galaxy bias assumed
-			//onehalo_term += pow(ukm_nfw_profile(k), 2.0)*kaiserGauss_Monofactor(0.0, 0.0);		
+			//onehalo_term += pow(ukm_nfw_profile(k), 2.0)*kaiserGauss_Monofactor(0.0, 0.0);				
 			//twohalo_term *= kaiserGauss_Monofactor(0.0, fg); //k dependence only with velocity dispersion	
+			twohalo_term *= KaiserLorentz_Monofactor(0.0, fg);
 		
 		} else if (order == 2) {	
 		
 			//onehalo_term += pow(ukm_nfw_profile(k), 2.0)*kaiserGauss_Quadfactor(0.0, 0.0);
-			//twohalo_term *= kaiserGauss_Quadfactor(0.0, fg); //k dependece for lorentz/gaussian 	
+			//twohalo_term *= kaiserGauss_Quadfactor(0.0, fg); //k dependece for lorentz/gaussian 
+			twohalo_term *= KaiserLorentz_Quadfactor(0.0, fg);	
+		
+		} else if (order == 4) {
+			// Lorentzian -> Gauss.  eval. for k=0 -> Kaiser factor.   
+			//twohalo_term *= kaiserGauss_Hexfactor(0.0, fg); 
+			twohalo_term *= Kaiser_Hexfactor(fg);
 		
 		} else {
-			printf("only monopole (order 0) and quadrupole (order 2) available \n");
+			printf("only monopole (order 0), quadrupole (order 2) and hexadecapole (order 4) available \n");
 			exit(0);
 		}
 	} else if (redshift_space != REAL_SPACE) {
 		printf("can only have REDSHIFT_SPACE or REAL_SPACE in halo model\n");
 	}
 	
+	interim += twohalo_term;	
+	//shotnoise * onehalo + twohalo	
 	
 	return interim; 	
 }
 
 //just outputs the halo model power spectrum to a given file
-int haloModel_out(char out[], BinInfo *halo_model_k_bins, double shot_noise, int redshift_space, SplineInfo_Extended *Pk_spline) {
+int haloModel_out(char out[], BinInfo *halo_model_k_bins, double shot_noise, double twohalo_prefactor, int redshift_space, SplineInfo_Extended *Pk_spline) {
 	
-	double k, model_mono, model_quad;	
+	double k, model_mono, model_quad, model_hex;	
 	FILE *f = fopen(out, "w");
 	if (out == NULL) {
 		printf("wrong file in haloModel_out: %s \n", out);
 		exit(0);
-	}
-	
+	}	
 
 	for (int i = 0; i < halo_model_k_bins->bins; i++) {
 		k = bin_to_x(halo_model_k_bins, i);		
-		model_mono = halo_model_Pk(k, shot_noise, redshift_space, 0, Pk_spline);
-		model_quad = halo_model_Pk(k, shot_noise, redshift_space, 2, Pk_spline);
-		fprintf(f, "%le \t %le \t %le \n", k, model_mono, model_quad);
+		model_mono = halo_model_Pk(k, shot_noise, twohalo_prefactor, redshift_space, 0, Pk_spline);
+		model_quad = halo_model_Pk(k, shot_noise, twohalo_prefactor, redshift_space, 2, Pk_spline);
+		model_hex = halo_model_Pk(k, shot_noise, twohalo_prefactor, redshift_space, 4, Pk_spline);
+		//fprintf(f, "%le \t %le \t %le \n", k, model_mono, model_quad);
+		fprintf(f, "%le \t %le \t %le \t %le \n", k, model_mono, model_quad, model_hex);
 	}
 	
 	fclose(f);	

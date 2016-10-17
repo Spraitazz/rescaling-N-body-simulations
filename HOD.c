@@ -105,7 +105,7 @@ int HOD_main() {
 	
 	char out_model[100];
 	sprintf(out_model, "%s/data/HOD_rands/model_pk.dat", home_directory);
-	haloModel_out(out_model, rescaling_k_bin_info, weighted_shotnoise_sats, REAL_SPACE, Pk_current_extended);
+	haloModel_out(out_model, rescaling_k_bin_info, weighted_shotnoise_sats, 1.0, REAL_SPACE, Pk_current_extended);
 	//HOD_model(out_model, 0.02, 1.15, 200);	
 	
 	

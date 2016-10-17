@@ -1,5 +1,13 @@
-int initParticles() {
-	calloc2D_double(&particles, particle_no, 7);
+Particle* initParticles(int particle_no) {
+	Particle* particles = malloc((size_t)particle_no * sizeof(*particles));
+	//calloc2D_double(&particles, particle_no, 7);
+	return particles;
+}
+
+int freeParticles(Particle **particles) {
+	free(particles);
+	//free2D_double(&particles, particle_no);
+	particles = NULL;
 	return 0;
 }
 
@@ -10,18 +18,12 @@ int init_rng() {
 	return 0;
 }
 
-int clearParticles() {
-	for (int i = 0; i < particle_no; i++) {
-		particles[i][0] = 0.0;
-		particles[i][1] = 0.0;
-		particles[i][2] = 0.0;
-		particles[i][3] = 0.0;
-		particles[i][4] = 0.0;
-		particles[i][5] = 0.0;
-		particles[i][6] = 0.0;
-	}
+
+int clearParticles(Particle** particles) {
+	memset(*particles, 0, (size_t)particle_no * sizeof(*particles)); 	
 	return 0;
 }
+
 
 void homeDirChk() {
 	char tmp[200];
@@ -76,6 +78,7 @@ int overdensity_freeMemory() {
 }
 
 int ZA_allocateMemory() {
+	ZA_mem = true;
 	displacements_fourier = (fftw_complex*)fftw_malloc((size_t)(cells_displ[0]*cells_displ[1]*cells_displ[2])*sizeof(fftw_complex));
 	displacements = (fftw_complex*) fftw_malloc((size_t)(cells_displ[0]*cells_displ[1]*cells_displ[2])*sizeof(fftw_complex));
 	ZA_clearMemory();
@@ -101,54 +104,71 @@ int ZA_freeMemory() {
 
 int clearPk() {
 	for (int i = 0; i < spectrum_size; i++) {	
-		power_spectrum_monopole[i] = 0.0;
-		power_spectrum_quadrupole[i] = 0.0;
+		monopole[i] = 0.0;
+		quadrupole[i] = 0.0;
+		hexadecapole[i] = 0.0;
 		fk_abs_squares[i] = 0.0;		
 		k_number[i] = 0;
 		bin_k_average[i] = 0.0;
 		binsums_L2[i][0] = 0.0;
 		binsums_L2[i][1] = 0.0;
 		binsums_L2[i][2] = 0.0;
-		bin_k_min[i] = 1e10;
+		binsums_L4[i][0] = 0.0;
+		binsums_L4[i][1] = 0.0;
+		binsums_L4[i][2] = 0.0;
+		binsums_L4[i][3] = 0.0;
+		bin_k_min[i] = DBL_MAX;
 		bin_k_max[i] = 0.0;
 		toRemove_bins[i] = false;
 	}
 	return 0;
 }
 
-//allocates memory given how many bins are wanted, returns step size dk
-double init_spectrum_storage_len(int bins, double kmin, double kmax) {
-	double dk = (kmax - kmin) / (double) (bins-1);
+//allocates memory given how many bins are wanted
+int init_spectrum_storage(int bins) {
+
 	fk_abs_squares = calloc((size_t)bins, sizeof(*fk_abs_squares));
-	power_spectrum_monopole = calloc((size_t)bins, sizeof(*power_spectrum_monopole));
-	power_spectrum_quadrupole = calloc((size_t)bins, sizeof(*power_spectrum_quadrupole));	
+	monopole = calloc((size_t)bins, sizeof(*monopole));
+	quadrupole = calloc((size_t)bins, sizeof(*quadrupole));	
+	hexadecapole = calloc((size_t)bins, sizeof(*hexadecapole));	
 	k_number = calloc((size_t)bins, sizeof(*k_number));	
 	bin_k_average = calloc((size_t)bins, sizeof(*bin_k_average));
 	bin_k_min = malloc((size_t)bins * sizeof(*bin_k_min));
 	//start with something BIG
 	for (int i = 0; i < bins; i++) {
-		bin_k_min[i] = 1e10;
+		bin_k_min[i] = DBL_MAX;
 	}
 	bin_k_max = calloc((size_t)bins, sizeof(*bin_k_max));
 	toRemove_bins = calloc((size_t)bins, sizeof(*toRemove_bins));
-	calloc2D_double(&binsums_L2, bins, 3);		
-	return dk;
+	calloc2D_double(&binsums_L2, bins, 3);	
+	calloc2D_double(&binsums_L4, bins, 4);
+		
+	return 0;
 }
 
 int free_spectrum_storage() {
 	free(fk_abs_squares);
-	free(power_spectrum_monopole);
-	free(power_spectrum_quadrupole);
+	free(monopole);
+	free(quadrupole);
+	free(hexadecapole);
 	free(k_number);
 	free(bin_k_average);
 	free(bin_k_min);
 	free(bin_k_max);
 	free(toRemove_bins);
 	free2D_double(&binsums_L2, spectrum_size);
+	free2D_double(&binsums_L4, spectrum_size);
 	return 0;
 }
 
 void calloc2D_double(double*** arr, int dim1, int dim2) {
+	*arr = malloc((size_t) dim1 * sizeof(**arr));
+	for (int i = 0; i < dim1; i++) {
+		(*arr)[i] = calloc((size_t)dim2, sizeof(***arr));
+	}	
+}
+
+void calloc2D_int(int*** arr, int dim1, int dim2) {
 	*arr = malloc((size_t) dim1 * sizeof(**arr));
 	for (int i = 0; i < dim1; i++) {
 		(*arr)[i] = calloc((size_t)dim2, sizeof(***arr));
@@ -163,13 +183,21 @@ void free2D_double(double*** arr, int dim1) {
 	arr = NULL;
 }
 
+void free2D_int(int*** arr, int dim1) {
+	for (int i = 0; i < dim1; i++) {
+		free((*arr)[i]);
+	}
+	free(*arr);
+	arr = NULL;
+}
+
 int clearMemory() {	
 	clearPk();		
 	clearGrid();
-	clearParticles();
+	//clearParticles();
 	return 0;
 }
-
+/*
 int memCheck() {
 	bool pass = true;
 	printf("particles check: \n");
@@ -219,7 +247,7 @@ int memCheck() {
 	}
 	printf("Checking Pk calc data: \n");
 	for (int i = 0; i < spectrum_size; i++) {
-		if (fk_abs_squares[i] != 0.0 || power_spectrum_monopole[i] != 0.0 || power_spectrum_quadrupole[i] != 0.0 || k_number[i] != 0 || toRemove_bins[i] != false || binsums_L2[i][0] != 0.0 || binsums_L2[i][1] != 0.0 || binsums_L2[i][2] != 0.0) {
+		if (fk_abs_squares[i] != 0.0 || monopole[i] != 0.0 || quadrupole[i] != 0.0 || k_number[i] != 0 || toRemove_bins[i] != false || binsums_L2[i][0] != 0.0 || binsums_L2[i][1] != 0.0 || binsums_L2[i][2] != 0.0) {
 			printf("Pk calculation data not empty\n");
 			pass = false;
 			break;
@@ -232,4 +260,5 @@ int memCheck() {
 		return 0;
 	}
 }
+*/
 

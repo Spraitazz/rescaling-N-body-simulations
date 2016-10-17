@@ -1,61 +1,4 @@
-SplineInfo_Extended* extend_spline_model(SplineInfo *spline) {
-	
-	SplineInfo_Extended *model_spline = malloc(sizeof(*model_spline));
-	double pk_loA, pk_hiA, pk_lon, pk_hin, xmin, xmax, xend_min, xstart_max;
-		
-	xmin = spline->xmin;
-	xmax = spline->xmax;
-	xend_min = exp(log(xmin) + 0.2 * (log(xmax) - log(xmin))); //10% of range, can vary this
-	xstart_max = xmax - 0.1 * (xmax - xmin);	
-	
-	powerlaw_regression(spline->lines, xmin, xend_min, 1.0, spline->x_vals, spline->y_vals, &pk_loA, &pk_lon);    
-    powerlaw_regression(spline->lines, xstart_max, xmax, 1.0, spline->x_vals, spline->y_vals, &pk_hiA, &pk_hin);
-    
-    model_spline->spline = spline;
-	model_spline->pk_hiA = pk_hiA;
-	model_spline->pk_loA = pk_loA;
-	model_spline->pk_hin = pk_hin;
-	model_spline->pk_lon = pk_lon;
-	model_spline->model = true;
-	return model_spline;
-}
 
-SplineInfo_Extended* extend_spline(SplineInfo *spline) {
-	SplineInfo_Extended* extended_spline = malloc(sizeof(*extended_spline));
-	extended_spline->spline = spline;
-	extended_spline->pk_hiA = 0.0;
-	extended_spline->pk_loA = 0.0;
-	extended_spline->pk_hin = 0.0;
-	extended_spline->pk_lon = 0.0;
-	extended_spline->model = false;
-	return extended_spline;
-}
-
-//uses spline from what's available + power laws at low and high k. (all here return VP(k))
-double splint_Pk_model(SplineInfo_Extended *pk_model, double k) {
-	double Pk;
-	if (pk_model->model == false) {
-		printf("asking to splint a model, but giving a non-model extended SplineInfo\n");
-		exit(0);
-	} else {
-		if (k < pk_model->spline->xmin) {
-			Pk = pk_model->pk_loA*pow(k, 3.0 + pk_model->pk_lon);		
-		} else if (k > pk_model->spline->xmax) {
-			Pk = pk_model->pk_hiA*pow(k, 3.0 + pk_model->pk_hin);		
-		} else {
-			Pk = splint_generic(pk_model->spline, k);
-		}
-	}
-	return Pk/volume;
-}
-
-double splint_Pk(SplineInfo_Extended *pk_spline, double k) {
-	if (pk_spline->model) {
-		return splint_Pk_model(pk_spline, k);
-	} else {
-		return splint_generic(pk_spline->spline, k);
-	}
-}
 
 /*
 int halo_mass_func() {
@@ -102,7 +45,7 @@ int halo_mass_func() {
 int rescale_testRun() {	
 
 	double s_test = 0.9;
-	double z_test = 1.2;
+	double z_test = 0.3;
 	double z_tmp;
 	
 	char Pk_current_path[100];
@@ -120,8 +63,8 @@ int rescale_testRun() {
 	z_target = 0.75;	
 	
 	//find optimal s, z		
-	R1_primed = 0.1;
-	R2_primed = 30.0;
+	R1_primed = 0.05;
+	R2_primed = 5.0;
 	vary_z_current = true;
 	//global variables
 	k_bins = 300;
@@ -144,13 +87,21 @@ int rescale_testRun() {
 	z_to_t_workspace = gsl_integration_workspace_alloc(z_to_t_workspace_size);
 	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
 	
+	//redshift-time relation reversed:	
+	prep_redshift_spline(rescaling_z_bin_info);
+	
+	//for target simulation:
+	Pk_target = prep_Pk_constz(target_gravity, z_target, z_test, Pk_target, rescaling_k_bin_info);
+	Pk_target_extended = extend_spline_model(Pk_target);	
+	variance_spline_target = prep_variances_test(rescaling_R_bin_info, Pk_target_extended, s_test);
+	
 	//for current simulation:		
 	Pk_splines_zBins = malloc((size_t)z_bins * sizeof(*Pk_splines_zBins));
 	Pk_splines_zBins_extended = malloc((size_t)z_bins * sizeof(*Pk_splines_zBins_extended));
 	variance_splines_zBins = malloc((size_t)z_bins * sizeof(*variance_splines_zBins));
 	
-	//redshift-time relation reversed:	
-	prep_redshift_spline(rescaling_z_bin_info);
+	double min_sq_diff = DBL_MAX;
+	double sq_diff;
 
 	for (int i = 0; i < z_bins; i++) {
 		z_tmp = bin_to_x(rescaling_z_bin_info, i);
@@ -158,18 +109,22 @@ int rescale_testRun() {
 		
 		Pk_splines_zBins[i] = prep_Pk_constz(current_gravity, z_current, z_tmp, Pk_current, rescaling_k_bin_info);
 		
+		sq_diff = pow(splint_generic(Pk_splines_zBins[i], 0.1) - splint_generic(Pk_target, 0.1), 2.0);
+		if (sq_diff < min_sq_diff) {
+			min_sq_diff = sq_diff;
+			z_guess = z_tmp;
+		}
+		
 		Pk_splines_zBins_extended[i] = extend_spline_model(Pk_splines_zBins[i]);
 
 		variance_splines_zBins[i] = prep_variances(rescaling_R_bin_info, Pk_splines_zBins_extended[i]);
 	}
 	
-	//for target simulation:
-	prep_Pk_constz(target_gravity, z_target, z_test, Pk_target, rescaling_k_bin_info);
-	Pk_target_extended = extend_spline_model(Pk_target);	
+	printf("z guess: %lf \n", z_guess);
 	
-	variance_spline_target = prep_variances_test(rescaling_R_bin_info, Pk_target_extended, s_test); //TEST		
+		
 	
-	dsq_multimin(vary_z_current, variance_spline_target, variance_splines_zBins);
+	dsq_multimin(vary_z_current, z_guess, variance_spline_target, variance_splines_zBins);
 
 	free(Pk_splines_zBins);
 	free(Pk_splines_zBins_extended);
@@ -195,39 +150,50 @@ int rescale_model() {
 	z_target = 0.76;	
 	
 	//find optimal s, z		
-	R1_primed = 0.1;
-	R2_primed = 2.0;
+	R1_primed = m_to_R(1e12, z_target);
+	R2_primed = m_to_R(5e15, z_target);
+	
+	printf("R1': %le, R2': %le \n", R1_primed, R2_primed);
 	
 	//varying z in current sim, box scaling always for current sim
 	vary_z_current = true;
 
 	k_bins = 300;
-	z_bins = 300;
+	z_bins = 200;
 	Dplus_bins = 300;
-	R_bins = 500;
+	R_bins = 300;
 	k_min = 0.01;
-	k_max = 0.1;
+	k_max = 1.0;
 	z_min = 0.0;
-	z_max = 10.0;
+	z_max = 5.0;
 	current_gravity = GR;
 	target_gravity = GR;	
 	
 	//binning info
 	rescaling_k_bin_info = prep_bins(k_min, k_max, k_bins, LOG_BIN);	
 	rescaling_z_bin_info = prep_bins(z_min, z_max, z_bins, NORMAL_BIN);
-	rescaling_R_bin_info = prep_bins(0.1*R1_primed, 10.0*R2_primed, R_bins, LOG_BIN); 
+	rescaling_R_bin_info = prep_bins(0.6*R1_primed, 1.5*R2_primed, R_bins, LOG_BIN); 
 	
 	//integral workspaces
 	z_to_t_workspace = gsl_integration_workspace_alloc(z_to_t_workspace_size);
 	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
+	
+	//redshift-time relation reversed:	
+	prep_redshift_spline(rescaling_z_bin_info);
+	
+	//for target simulation:	
+	Pk_target_extended = extend_spline_model(Pk_target);	
+	variance_spline_target = prep_variances(rescaling_R_bin_info, Pk_target_extended);
 	
 	//for current simulation:		
 	Pk_splines_zBins = malloc((size_t)z_bins * sizeof(*Pk_splines_zBins));
 	Pk_splines_zBins_extended = malloc((size_t)z_bins * sizeof(*Pk_splines_zBins_extended));
 	variance_splines_zBins = malloc((size_t)z_bins * sizeof(*variance_splines_zBins));
 	
-	//redshift-time relation reversed:	
-	prep_redshift_spline(rescaling_z_bin_info);
+	
+	
+	double min_sq_diff = DBL_MAX;
+	double sq_diff;
 
 	double z_cur;
 	for (int i = 0; i < z_bins; i++) {
@@ -235,20 +201,35 @@ int rescale_model() {
 		printf("zbin %d, z: %lf \n", i, z_cur);
 
 		Pk_splines_zBins[i] = prep_Pk_constz(current_gravity, z_current, z_cur, Pk_current, rescaling_k_bin_info);	
+		
+		sq_diff = pow(splint_generic(Pk_splines_zBins[i], 0.1) - splint_generic(Pk_target, 0.1), 2.0);
+		if (sq_diff < min_sq_diff) {
+			min_sq_diff = sq_diff;
+			z_guess = z_cur;
+		}
+
+		//Pk_splines_zBins_extended[i] = extend_spline_model(Pk_splines_zBins[i]);
+		
+		//variance_splines_zBins[i] = prep_variances(rescaling_R_bin_info, Pk_splines_zBins_extended[i]);
+	}
+	
+	printf("z guess: %lf \n", z_guess);
+	//R1_primed = m_to_R(1e12, z_target);
+	//R2_primed = m_to_R(5e15, z_target);
+		
+	
+	for (int i = 0; i < z_bins; i++) {
+		z_cur = bin_to_x(rescaling_z_bin_info, i);
+		printf("zbin %d, z: %lf \n", i, z_cur);		
 
 		Pk_splines_zBins_extended[i] = extend_spline_model(Pk_splines_zBins[i]);
 		
 		variance_splines_zBins[i] = prep_variances(rescaling_R_bin_info, Pk_splines_zBins_extended[i]);
 	}
 	
-	//for target simulation:	
-	Pk_target_extended = extend_spline_model(Pk_target);	
-	
-	variance_spline_target = prep_variances(rescaling_R_bin_info, Pk_target_extended);
-	
 
 	//minimization to find s, z_rescaled (global vars)
-	dsq_multimin(vary_z_current, variance_spline_target, variance_splines_zBins);
+	dsq_multimin(vary_z_current, z_guess, variance_spline_target, variance_splines_zBins);
 	/*
 	double dsqmin = dsq_minimized_value;
 	for (int i = 0; i < 10; i++) {
@@ -298,7 +279,271 @@ int rescale_model() {
 	return 0;		
 }
 
-int rescale_catalogue() {		
+
+
+
+//CATALOGUE TO MODEL
+
+int rescale_catalogue_to_model() {		
+
+	char Pk_target_path[100];
+	sprintf(Pk_target_path, "%s/data/linear_matter_pk_sig8_0.593_z_0.75.dat", home_directory);		
+
+	char sim_current[100];	
+	sprintf(sim_current, "%s/%s", mock_directory, "AllHalo_GR_1500Mpc_a0.7_1.txt");	
+	
+	//char out_final[] = "/home/jonas/Testing_GR/code/Jonas/output/rescaling/GR_rescaled_test.dat";
+	
+	char tmpFile[100];
+	sprintf(tmpFile, "%s/data/rescaling/tmp_unfolded.dat", home_directory);
+	char tmpFile2[100];
+	sprintf(tmpFile2, "%s/data/rescaling/tmp_folded.dat", home_directory);
+	char outFile[100];
+	sprintf(outFile, "%s/data/rescaling/measured_pk.dat", home_directory);
+	
+	z_current = a_to_z(0.7);
+	z_target = 0.75;
+	
+	Particle_Catalogue *current_catalogue;	
+	
+	//current simulation data input
+	current_catalogue = input_catalogue_file(sim_current, 1, mocks_format);	
+	
+	//min and max masses, here for current catalogue, but actually must be for target catalogue
+	mass_min_max(current_catalogue);
+	printf("mmin: %le,  mmax: %le\n", Mmin,  Mmax);
+	R1_primed = m_to_R(Mmin, z_current);
+	R2_primed = m_to_R(Mmax, z_current);
+	printf("R1': %le, R2': %le \n", R1_primed, R2_primed);		
+	
+	overdensity_allocateMemory();
+	haloes_measure_Pk(current_catalogue, outFile, 1.0, CIC);			
+	overdensity_freeMemory();
+	
+	Pk_current = input_spline_file(outFile, k_Pkmono_format, NORMAL);
+	remove(outFile);	
+	Pk_target = input_spline_file(Pk_target_path, Pk_model_format, NORMAL);	
+	
+	printf("current kmin: %lf, kmax: %lf \n", Pk_current->xmin, Pk_current->xmax);
+	
+	//find optimal s, z		
+	vary_z_current = true;
+	
+	k_bins = 300;
+	z_bins = 200;
+	Dplus_bins = 300;
+	R_bins = 300;
+	k_min = 0.02;
+	k_max = 0.2;
+	z_min = 0.0;
+	z_max = 4.0;	
+	current_gravity = GR;
+	target_gravity = GR;
+	
+	/*
+	if (current_gravity != GR || target_gravity != GR) {
+		prep_Dplus_kz();	
+	}
+	*/
+	
+	rescaling_k_bin_info = prep_bins(k_min, k_max, k_bins, LOG_BIN);
+	rescaling_z_bin_info = prep_bins(z_min, z_max, z_bins, NORMAL_BIN);
+	rescaling_R_bin_info = prep_bins(0.6*R1_primed, 1.5*R2_primed, R_bins, LOG_BIN); 
+	//HOD_mass_bin_info = prep_bins(Mmin, Mmax, 100, NORMAL_BIN);
+	
+	//integral workspaces
+	z_to_t_workspace = gsl_integration_workspace_alloc(z_to_t_workspace_size);
+	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
+	
+	//redshift-time relation reversed:	
+	prep_redshift_spline(rescaling_z_bin_info);
+	
+	//for current simulation:		
+	Pk_splines_zBins = malloc((size_t)z_bins * sizeof(*Pk_splines_zBins));
+	Pk_splines_zBins_extended = malloc((size_t)z_bins * sizeof(*Pk_splines_zBins_extended));
+	variance_splines_zBins = malloc((size_t)z_bins * sizeof(*variance_splines_zBins));
+	Pk_current_extended = extend_spline(Pk_current);	
+	
+	//for target simulation:	
+	Pk_target_extended = extend_spline_model(Pk_target);	
+	variance_spline_target = prep_variances(rescaling_R_bin_info, Pk_target_extended);
+
+	double z_cur, z_guess, sq_diff, min_sq_diff;
+	min_sq_diff = DBL_MAX;
+	for (int i = 0; i < z_bins; i++) {
+		z_cur = bin_to_x(rescaling_z_bin_info, i);
+		//printf("zbin %d, z: %lf \n", i, z_cur);
+
+		Pk_splines_zBins[i] = prep_Pk_constz(current_gravity, z_current, z_cur, Pk_current, rescaling_k_bin_info);	
+		
+		//check more points
+		sq_diff = pow(splint_generic(Pk_splines_zBins[i], 0.1) - splint_generic(Pk_target, 0.1), 2.0);
+		if (sq_diff < min_sq_diff) {
+			min_sq_diff = sq_diff;
+			z_guess = z_cur;
+		}	
+		
+	}	
+	
+	printf("z guess: %lf \n", z_guess);			
+	
+	for (int i = 0; i < z_bins; i++) {
+		z_cur = bin_to_x(rescaling_z_bin_info, i);
+		printf("zbin %d, z: %lf \n", i, z_cur);		
+
+		Pk_splines_zBins_extended[i] = extend_spline(Pk_splines_zBins[i]);		
+		variance_splines_zBins[i] = prep_variances(rescaling_R_bin_info, Pk_splines_zBins_extended[i]);
+	}
+	
+	//current 
+	char current_outPath[100];
+	sprintf(current_outPath, "%s/data/rescaling/cat_to_model/delsq_current.dat", home_directory);
+	print_delsq(Pk_current_extended, current_outPath, k_min, k_max, 200, false);
+	
+	//target
+	char target_outPath[100];
+	sprintf(target_outPath, "%s/data/rescaling/cat_to_model/delsq_target.dat", home_directory);
+	print_delsq(Pk_target_extended, target_outPath, k_min, k_max, 200, false);	
+	
+	//minimization
+	dsq_multimin(vary_z_current, z_guess, variance_spline_target, variance_splines_zBins);
+	int z_ind_final = x_to_bin(rescaling_z_bin_info, z_rescaled);
+	
+	//current s scaled
+	char current_outPath_s[100];
+	sprintf(current_outPath_s, "%s/data/rescaling/cat_to_model/delsq_current_s.dat", home_directory);
+	print_delsq(Pk_current_extended, current_outPath_s, k_min, k_max, 200, true);
+	
+	//scale box
+	volume_limits[0] *= s;
+	volume_limits[1] *= s;
+	volume_limits[2] *= s;
+	volume = volume_limits[0]*volume_limits[1]*volume_limits[2];
+	
+	for (int i = 0; i < current_catalogue->particle_no; i++) {
+		PBC(&(current_catalogue->particles[i].x), &(current_catalogue->particles[i].y), &(current_catalogue->particles[i].z));
+	}	
+	
+	overdensity_allocateMemory();
+	haloes_measure_Pk(current_catalogue, outFile, 1.0, CIC);			
+	overdensity_freeMemory();	
+	
+	SplineInfo* Pk_current_rescaled = input_spline_file(outFile, k_Pkmono_format, NORMAL);
+	SplineInfo_Extended* Pk_current_rescaled_extended = extend_spline(Pk_current_rescaled);
+	//remove(outFile);
+	
+	//current s scaled, measured
+	char current_outPath_s_measured[100];
+	sprintf(current_outPath_s_measured, "%s/data/rescaling/cat_to_model/delsq_current_s_measured.dat", home_directory);
+	print_delsq(Pk_current_rescaled_extended, current_outPath_s_measured, k_min, k_max, 200, false);
+	
+	/*
+	//current with redshift scale
+	char current_outPath_z[100];
+	sprintf(current_outPath_z, "%s/data/rescaling/cat_to_model/delsq_current_z.dat", home_directory);
+	print_delsq(Pk_splines_zBins_extended[z_ind_final], current_outPath_z, k_min, k_max, 200, false);
+	
+	//deviation from wanted pk
+	double someNumber = 0.0;
+	double k_cur;
+	for (int i = 0; i < k_bins; i++) {
+		k_cur = bin_to_x(rescaling_k_bin_info, i);
+		someNumber += pow(splint_Pk(Pk_splines_zBins_extended[z_ind_final], k_cur) - splint_Pk(Pk_target_extended, k_cur), 2.0);
+	}
+
+	printf("some number after z scale: %le \n", someNumber);
+	someNumber = 0.0;
+	
+	//current after redshift AND box scale
+	char current_outPath_zs[100];
+	sprintf(current_outPath_zs, "%s/data/rescaling/cat_to_model/delsq_current_zs.dat", home_directory);
+	print_delsq(Pk_splines_zBins_extended[z_ind_final], current_outPath_zs, k_min, k_max, 200, true); 
+	
+	for (int i = 0; i < k_bins; i++) {
+		k_cur = bin_to_x(rescaling_k_bin_info, i);
+		someNumber += pow(splint_Pk(Pk_splines_zBins_extended[z_ind_final], k_cur) - splint_Pk(Pk_target_extended, k_cur/s), 2.0);
+	}
+	
+	printf("some number after zs scale: %le \n", someNumber);
+	*/
+	
+	
+	exit(0);	
+	
+	
+	
+	
+	
+	//scale masses
+	for (int i = 0; i < particle_no; i++) {
+		//OMEGA M DEPENDS ON Z!!!!!!!!!!!
+		current_catalogue->particles[i].mass = pow(s, 3.0)*omega_m_primed*current_catalogue->particles[i].mass/omega_m_z(z_rescaled);
+	}
+	
+	/*	
+	//scale velocities
+	for (int i = 0; i < particle_no; i++) {
+		particles[i][3] = particles[i][3]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);
+		particles[i][4] = particles[i][4]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);
+		particles[i][5] = particles[i][5]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);	
+	}
+	*/
+	
+
+	//calc_b_eff(z_rescaled);
+	//bias_plot();
+	
+	
+	
+	
+	/*
+	populateGridCIC();
+	gridIntoOverdensity();
+	overdensity_pk(false);
+	pk_to_file_logbin(out_final);
+*/
+	
+	/*
+	for (int i = 0; i < particle_no; i++) {
+		PBC(&particles[i][0], &particles[i][1], &particles[i][2]);
+	}	
+	*/
+	
+	//scale masses, velocities with s
+	//does this come before or after HOD??
+	//NEED SOME PARAMETERS HERE!!
+	//scale_masses();
+	//scale_velocities();
+	
+	
+	//Pk_out(out_final);
+	
+	/*
+	
+	//move around haloes
+	//displacements and velocities! Don't necessarily need to free this yet		
+	fftw_allocateMemory_ZA();
+	restore_disp_ZA();
+	fftw_free(displacements);
+	fftw_free(displacements_fourier);
+	*/
+	
+	free(Pk_splines_zBins);
+	free(Pk_splines_zBins_extended);
+	free(variance_splines_zBins);
+	free(rescaling_k_bin_info);
+	free(rescaling_R_bin_info);
+	free(rescaling_z_bin_info);
+	gsl_integration_workspace_free(z_to_t_workspace);	
+	gsl_integration_workspace_free(OLV_workspace);	
+	return 0;		
+}
+
+
+
+//CATALOGUE TO CATALOGUE
+
+int rescale_catalogue_to_catalogue() {		
 
 	char Pk_target_path[100];
 	sprintf(Pk_target_path, "%s/data/linear_matter_pk_sig8_0.593_z_0.75.dat", home_directory);		
@@ -319,18 +564,18 @@ int rescale_catalogue() {
 	z_target = 0.75;	
 	
 	//current simulation data input
-	read_full_xyz(sim_current, 1, mocks_format);
+	//read_full_xyz(sim_current, 1, mocks_format);
 	//min and max masses, MUST COME BEFORE CUMSUMS
-	mass_min_max();
+	//mass_min_max(&particles, particle_no);
 	printf("mmin: %le,  mmax: %le\n", Mmin,  Mmax);
 	R1_primed = m_to_R(Mmin, z_current);
 	R2_primed = m_to_R(Mmax, z_current);
 	printf("R1': %le, R2': %le \n", R1_primed, R2_primed);		
 	
 	overdensity_allocateMemory();
-	haloes_measure_Pk(tmpFile, 1.0, false);	
-	haloes_measure_Pk(tmpFile2, 4.0, false);
-	combine_folded(tmpFile, tmpFile2, pk_format_folding, outFile, 0.0, 1.1, 0.3, true);	//MAKE SURE THESE ARE MANUALLY SET FOR BEST P(k)	
+	//haloes_measure_Pk(&particles, particle_no, tmpFile, 1.0, CIC);	
+	//haloes_measure_Pk(tmpFile2, 4.0, false);
+	//combine_folded(tmpFile, tmpFile2, pk_format_folding, outFile, 0.0, 1.1, 0.3, true);	//MAKE SURE THESE ARE MANUALLY SET FOR BEST P(k)	
 	overdensity_freeMemory();
 	remove(tmpFile);
 	remove(tmpFile2);
@@ -349,7 +594,7 @@ int rescale_catalogue() {
 	k_min = 0.001;
 	k_max = 10.0;
 	z_min = 0.0;
-	z_max = 3.0;
+	z_max = 5.0;
 	
 	current_gravity = GR;
 	target_gravity = GR;
@@ -416,7 +661,7 @@ int rescale_catalogue() {
 	*/
 	
 
-	calc_b_eff(z_rescaled);
+	//calc_b_eff(z_rescaled);
 	//bias_plot();
 	
 	
@@ -457,6 +702,8 @@ int rescale_catalogue() {
 	remove(tmpFile);
 	return 0;		
 }
+
+
 
 /*
 int HOD_catalogue() {

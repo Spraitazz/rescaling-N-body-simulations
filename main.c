@@ -13,8 +13,12 @@
 #include <gsl/gsl_sf.h>
 //#include <gsl/gsl_min.h>
 #include <gsl/gsl_multimin.h>
+#include <gsl/gsl_linalg.h>
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_odeiv2.h>
+#include <gsl/gsl_interp.h>
+#include <gsl/gsl_spline.h>
+#include <gsl/gsl_spline2d.h>
 #include <fftw3.h>
 
 //my definitions
@@ -42,12 +46,14 @@
 #define GR 1114
 
 //my headers
+#include "structs.h"
 #include "main.h"
 
 //my code
 #include "parameters.c"
 #include "memory.c"
 #include "functions.c"
+#include "populate_haloes.c"
 #include "power_spectrum.c"
 #include "catalogue_input.c"
 #include "fold.c"
@@ -55,14 +61,13 @@
 #include "covariance_matrices.c"
 #include "CubicSpline_double.c"
 #include "rescaling.c"
+#include "RSD_Pk.c"
 #include "halo_model.c"
 #include "Dplus.c"
 #include "rescaling_functions.c"
-//#include "ZA.c"
+#include "ZA.c"
 #include "bias.c"
-#include "HOD.c"
-//#include "RSD_Pk.c"
-//#include "halo_model.c"
+//#include "HOD.c"
 //#include "tests.c"
 
 //http://arxiv.org/pdf/astro-ph/0005010v2.pdf rescaling
@@ -78,7 +83,7 @@ int main(int argc, char **argv) {
 	argv = argv;	
 	//run time
 	clock_t start_time = clock();	
-	printf(" \n\n CHECK FREE 2D DOUBLE, FUNCTION CALL WAS WRONG \n\n");
+
 	//set home directory!!
 	//home_directory = "/shome/jonasp/Work/Testing_GR/code/Jonas";	
 	home_directory = "/home/jonas/Testing_GR/code/Jonas";
@@ -92,15 +97,15 @@ int main(int argc, char **argv) {
 	central_no = 0;
 	
 	//define volume for particles
-	volume_limits[0] = 256.0;  // h^-1 Mpc 
-	volume_limits[1] = 256.0;
-	volume_limits[2] = 256.0;
+	volume_limits[0] = 1500.0;  // h^-1 Mpc 
+	volume_limits[1] = 1500.0;
+	volume_limits[2] = 1500.0;
 	volume = volume_limits[0]*volume_limits[1]*volume_limits[2];	
 	
 	//define grid size, EVEN NUMBERS ONLY TO AVOID PROBLEMS, 2^n best for FFT	
-	cells[0] = 128;
-	cells[1] = 128;
-	cells[2] = 128;	
+	cells[0] = 256;
+	cells[1] = 256;
+	cells[2] = 256;	
 	
 	//allocate grid memory
 	initGrid();	
@@ -110,8 +115,8 @@ int main(int argc, char **argv) {
 	cells_displ[1] = 256;
 	cells_displ[2] = 256;	
 		
-	//spectrum bins, particles
-	spectrum_size = 40;	
+	//spectrum bins
+	spectrum_size = 30;	
 		
 	//start random numb generator
 	init_rng();			
@@ -120,13 +125,15 @@ int main(int argc, char **argv) {
 	set_params();
 	
 	//covariance_sequence();
-	HOD_main();
+	//HOD_main();
+	//biased_displacements();
+	//ZA_RSD();
+	//ST_bias();
 
-	//ZA_test();
-	//rescale_model();
-	
 	//rescale_testRun();
-	//rescale_catalogue();
+	//rescale_model();
+	rescale_catalogue_to_model();
+	//rescale_catalogue_to_catalogue();
 	exit(0);
 	
 	
@@ -167,7 +174,7 @@ int main(int argc, char **argv) {
 		printf("run %d, in file: %s, out file: %s \n", i, in_final, out_final);
 		read_full_xyz(in_final, 1, mocks_format);
 		if (redshift_space) toRedshift(0.7);		
-		haloes_measure_Pk(out_final, fold_factor, NGP);	
+		//haloes_measure_Pk(out_final, fold_factor, NGP);	
 		
 		
 	}

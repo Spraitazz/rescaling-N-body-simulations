@@ -25,6 +25,15 @@ int PBC(double *xx, double *yy, double *zz) {
 	return 0;
 }
 
+bool equalsDouble(double x, double y) {
+	if (x - 1e-10 < y && x + 1e-10 > y) {
+		return true;
+	} else {
+		return false;
+	}
+
+}
+
 //Does what it says on the tin, file starts rewinded? :( can find current line in function, revert afterwards :)
 int countLines(FILE *f) {
 	rewind(f);
@@ -67,21 +76,32 @@ char* prep_path(char tail[]) {
 }
 
 //finds the min and max mass of a catalogue, places in global variables
-int mass_min_max() {
-	Mmin = particles[0][6];
-	Mmax = particles[0][6];
-	for (int i = 1; i < particle_no; i++) {
-		if (particles[i][6] < Mmin) {
-			Mmin = particles[i][6];
-		} else if (particles[i][6] > Mmax) {
-			Mmax = particles[i][6];
+int mass_min_max(Particle_Catalogue *catalogue) {
+	Mmax = Mmin = catalogue->particles[0].mass;
+	for (int i = 1; i < catalogue->particle_no; i++) {
+		if (catalogue->particles[i].mass < Mmin) {
+			Mmin = catalogue->particles[i].mass;
+		} else if (catalogue->particles[i].mass > Mmax) {
+			Mmax = catalogue->particles[i].mass;
 		}
 	}
 	return 0;
 }
 
+double z_to_a(double z) {
+	return 1.0/(z + 1.0); 
+}
+
+double a_to_z(double a) {
+	return 1.0/a - 1.0;
+}
+
+double H_a(double a) {
+	return H0*sqrt(omega_v_0 + omega_m_0*pow(a,-3.0) + omega_r_0*pow(a,-4.0) + (1.0 - omega)*pow(a,-2.0));	
+}
+
 double rho_bar_z(double z) {
-	return rho_cosm*pow(z_to_a(z), -3.0)*omega_m;
+	return rho_cosm*pow(z_to_a(z), -3.0)*omega_m_0;
 }
 
 double m_to_R(double mass, double z) {
@@ -90,6 +110,17 @@ double m_to_R(double mass, double z) {
 
 double R_to_m(double R, double z) {
 	return (4.0/3.0)*pi*pow(R,3.0)*rho_bar_z(z);
+}
+
+double omega_m_z(double z) {
+	double a_cur = z_to_a(z);
+	double H = H_a(a_cur);
+	return omega_m_0*pow(a_cur, -3.0)*pow(H0/H, 2.0);
+}
+
+//Bullock et al. 2006?? or 2004?
+double del_nl_z(double z) {
+	return (18.0*pi*pi + 82.0*(omega_m_z(z) - 1.0) - 39.0*pow(omega_m_z(z) - 1.0, 2.0)) / omega_m_z(z); 
 }
 
 //a single struct to pass around binning stuff
@@ -133,9 +164,13 @@ double bin_to_x(BinInfo *bin_info, int index) {
 }
 
 //generic function to create struct with spline coefficients, x, y values, xmin, xmax, lines
-SplineInfo* input_spline_values(int lines, double* x_vals, double* y_vals) {
+SplineInfo* input_spline_values(int lines, double* xs, double* ys) {
 	double xmin, xmax;	
 	bool x_mono, x_inc;
+	double* x_vals = malloc(lines * sizeof(*xs));
+	double* y_vals = malloc(lines * sizeof(*ys));
+	memcpy(x_vals, xs, lines * sizeof(*xs));
+	memcpy(y_vals, ys, lines * sizeof(*ys));	
 	double* coeffs = malloc((size_t)lines * sizeof(*coeffs));	
 	int dupcount = 0;
 	x_mono = true;	
@@ -195,18 +230,19 @@ SplineInfo* input_spline_values(int lines, double* x_vals, double* y_vals) {
 
 //inputs generic spline, given a file and a format reverse means y in terms of x
 //format can only contain 2 counts of %lf.
-SplineInfo* input_spline_file(char inFile[], const char format[], int reverse) {	
+SplineInfo* input_spline_file(char inFile[], const char format[], int reverse) {
+	
 	FILE *f = fopen(inFile, "r");
 	if (f == NULL) {
 		printf("wrong file in spline input: %s \n", inFile);
 		exit(0);
 	}
+	
 	double xmin, xmax;
 	int lines = countLines(f);
 	SplineInfo* toReturn = malloc(sizeof(*toReturn));	
 	double* x_vals = malloc((size_t)lines * sizeof(*x_vals));
 	double* y_vals = malloc((size_t)lines * sizeof(*y_vals));
-	double* coeffs = calloc((size_t)lines, sizeof(*coeffs));
 
 	for (int i = 0; i < lines; i++) {
 		ph = fscanf(f, format, &x_vals[i], &y_vals[i]);
@@ -219,7 +255,10 @@ SplineInfo* input_spline_file(char inFile[], const char format[], int reverse) {
 	} else {
 		printf("expected either NORMAL or REVERSED for input_spline_file() \n");
 		exit(0);
-	}	
+	}
+	
+	free(x_vals);
+	free(y_vals);		
 	return toReturn;		
 }
 
@@ -289,7 +328,7 @@ double splint_generic(SplineInfo *info, double x) {
 	return y;
 }
 
-int print_delsq(SplineInfo_Extended *pk_spline, char* filename, double kmin, double kmax, int bins, bool scaled) {
+int print_delsq(SplineInfo_Extended *pk_spline, char filename[], double kmin, double kmax, int bins, bool scaled) {
 	FILE *delsq_out_file = fopen(filename, "w");	
 	double delsq, k_cur, logkmin, logdk, logk;
 	logkmin = log10(kmin);

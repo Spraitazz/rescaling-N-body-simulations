@@ -1,3 +1,62 @@
+SplineInfo_Extended* extend_spline_model(SplineInfo *spline) {
+	
+	SplineInfo_Extended *model_spline = malloc(sizeof(*model_spline));
+	double pk_loA, pk_hiA, pk_lon, pk_hin, xmin, xmax, xend_min, xstart_max;
+		
+	xmin = spline->xmin;
+	xmax = spline->xmax;
+	xend_min = exp(log(xmin) + 0.2 * (log(xmax) - log(xmin))); //10% of range, can vary this
+	xstart_max = xmax - 0.1 * (xmax - xmin);	
+	
+	powerlaw_regression(spline->lines, xmin, xend_min, 1.0, spline->x_vals, spline->y_vals, &pk_loA, &pk_lon);    
+    powerlaw_regression(spline->lines, xstart_max, xmax, 1.0, spline->x_vals, spline->y_vals, &pk_hiA, &pk_hin);
+    
+    model_spline->spline = spline;
+	model_spline->pk_hiA = pk_hiA;
+	model_spline->pk_loA = pk_loA;
+	model_spline->pk_hin = pk_hin;
+	model_spline->pk_lon = pk_lon;
+	model_spline->model = true;
+	return model_spline;
+}
+
+SplineInfo_Extended* extend_spline(SplineInfo *spline) {
+	SplineInfo_Extended* extended_spline = malloc(sizeof(*extended_spline));
+	extended_spline->spline = spline;
+	extended_spline->pk_hiA = 0.0;
+	extended_spline->pk_loA = 0.0;
+	extended_spline->pk_hin = 0.0;
+	extended_spline->pk_lon = 0.0;
+	extended_spline->model = false;
+	return extended_spline;
+}
+
+//uses spline from what's available + power laws at low and high k. (all here return VP(k))
+double splint_Pk_model(SplineInfo_Extended *pk_model, double k) {
+	double Pk;
+	if (pk_model->model == false) {
+		printf("asking to splint a model, but giving a non-model extended SplineInfo\n");
+		exit(0);
+	} else {
+		if (k < pk_model->spline->xmin) {
+			Pk = pk_model->pk_loA*pow(k, 3.0 + pk_model->pk_lon);		
+		} else if (k > pk_model->spline->xmax) {
+			Pk = pk_model->pk_hiA*pow(k, 3.0 + pk_model->pk_hin);		
+		} else {
+			Pk = splint_generic(pk_model->spline, k);
+		}
+	}
+	return Pk/volume;
+}
+
+double splint_Pk(SplineInfo_Extended *pk_spline, double k) {
+	if (pk_spline->model) {
+		return splint_Pk_model(pk_spline, k);
+	} else {
+		return splint_generic(pk_spline->spline, k)/volume;
+	}
+}
+
 //volume term comes from VP(k) used for plotting
 double delsq_lin(SplineInfo_Extended *pk_spline, double k) {
 	double Pk = splint_Pk(pk_spline, k);	
@@ -145,18 +204,19 @@ double OLV_smoothed(double k, void *params) {
 	
 	delsq = delsq_lin(parameters->spline, k);
 	
-	return delsq * exp(-k*k*pow(R_nl_this, 2.0)) / pow(k, 3.0);
+	return delsq * exp(-k*k*R_nl_this*R_nl_this) / pow(k, 3.0);
 }
 
 double expected_variance_smoothed(double R_nl_this, SplineInfo_Extended *pk_spline) {
 	double error, result;
-	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
 	OLV_parameters params = {pk_spline, R_nl_this}; 
 	gsl_function F;	
     F.function = &OLV_smoothed;  
     F.params = &params;    
-    gsl_integration_qagiu(&F, 2.0*pi/volume_limits[0], 0, 1e-6, OLV_workspace_size, OLV_workspace, &result, &error); 	    
-	gsl_integration_workspace_free(OLV_workspace);
+   	//double cellSize = volume_limits[0] / (double) cells[0];    
+    //double k_nyquist = pi / cellSize;
+    //gsl_integration_qags(&F, 2.0*pi/volume_limits[0], k_nyquist, 0, 1e-6, OLV_workspace_size, OLV_workspace, &result, &error); 
+    gsl_integration_qagiu(&F, 2.0*pi/volume_limits[0], 0, 1e-6, OLV_workspace_size, OLV_workspace, &result, &error); 
 	return result;
 }
 
@@ -184,7 +244,7 @@ double delta_sq_int_func(double R, void *params) {
 		//is this the correct behaviour?
 		return 1.0/R;
 	} else {
-		return pow(1.0 - (sigma / sigma_primed), 2.0) / R;
+		return pow(1.0 - sigma/sigma_primed, 2.0) / R;
 	}
 }
 
@@ -225,25 +285,23 @@ double delta_sq_rms(const gsl_vector *inputs, void *params) {
 	}
 }
 
-int dsq_multimin(bool vary_z_cur, SplineInfo* variance_const, SplineInfo** variances_varz) {
+int dsq_multimin(bool vary_z_cur, double z_init, SplineInfo* variance_const, SplineInfo** variances_varz) {
 		
 	size_t iter = 0;
 	int status;
 	int variables = 2;
-	double size, z_var_init;
+	double size, nm_simplex_stop_size;
 	const gsl_multimin_fminimizer_type *T = gsl_multimin_fminimizer_nmsimplex2; 
 	gsl_multimin_fminimizer *dsq_minimizer = NULL;
 	gsl_vector *inputs, *step_sizes;
 	gsl_multimin_function dsq_func;
 	
+	//the size of the n (=2) dimensional simplex around a minimum for when the minimization has found "the minimum" (not necessarily the global one
+	nm_simplex_stop_size = 1e-7;
+	
 	dsq_workspace_cquad = gsl_integration_cquad_workspace_alloc(500);
 	
-	//providing z, varying z_primed (target z)
-	z_var_init = z_current;
-	
-	//providing z_primed, varying z in current sim
-	if (vary_z_cur) z_var_init = z_target;
-	
+	//the parameters to send to the delta squared integral
 	Multimin_Params* dsq_parameters = malloc(sizeof(*dsq_parameters));
 	dsq_parameters->vary_z_current = vary_z_cur;
 	dsq_parameters->R1_primed = R1_primed;
@@ -255,11 +313,11 @@ int dsq_multimin(bool vary_z_cur, SplineInfo* variance_const, SplineInfo** varia
 	//param 1 - s, param 2 - z, initial guesses are 1 for scaling parameter, and z = z'	
 	inputs = gsl_vector_alloc(variables);
 	gsl_vector_set(inputs, 0, 1.0);
-	gsl_vector_set(inputs, 1, z_current);	
+	gsl_vector_set(inputs, 1, z_init);	
 	
 	//param 1 - ds, param 2 - dz
 	step_sizes = gsl_vector_alloc(variables);
-	gsl_vector_set(step_sizes, 0, 0.1);
+	gsl_vector_set(step_sizes, 0, 0.02);
 	gsl_vector_set(step_sizes, 1, rescaling_z_bin_info->dx);	
 
 	//the function to minimize	
@@ -277,15 +335,19 @@ int dsq_multimin(bool vary_z_cur, SplineInfo* variance_const, SplineInfo** varia
 	do {
 	
 		iter++;
+		
+		//tries new parameters, evaluates function given
 		status = gsl_multimin_fminimizer_iterate(dsq_minimizer);	
 		if (status) break;	
+		
+		//check if minimum found - criteria for stopping is simplex size
 		size = gsl_multimin_fminimizer_size(dsq_minimizer);
-		status = gsl_multimin_test_size(size, 1e-6);
+		status = gsl_multimin_test_size(size, nm_simplex_stop_size);
 		
 		if (iter % 20 == 0){
 			printf("MINIMISATION. loop %ld. parameters, s: %lf, z: %lf, RMS diff in OLVs: %lf\n", iter, gsl_vector_get(dsq_minimizer->x, 0), gsl_vector_get(dsq_minimizer->x, 1), dsq_minimizer->fval);
 			if (iter % 100 == 0) {
-				//gsl_multimin_fminimizer_restart(dsq_minimizer);
+				nm_simplex_stop_size *= 10.0;
 			}
 		}
 		
@@ -316,6 +378,33 @@ int scale_velocities(double s, double H, double H_primed, double a_primed) {
 		particles[i][4] = particles[i][4]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);
 		particles[i][5] = particles[i][5]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);	
 	}
+	return 0;
+}
+*/
+
+/*
+int prep_Dplus_kz(int gravity, BinInfo* zBins, BinInfo* kBins) {
+
+	double k_cur;
+	double zs[zBins->bins];
+	double ks[kBins->bins];
+	double Dpluses[Dplus_bins];
+	
+	for (int i = 0; i < kBins->bins; i++) {
+		k_cur = bin_to_x(kBins, i);
+		Dplus_calc(gravity, k_cur, &zs, &Dpluses);
+	}
+	
+	
+	const gsl_interp2d_type *T = gsl_interp2d_bilinear;
+	gsl_spline2d *spline = gsl_spline2d_alloc(T, nx, ny);
+	gsl_spline2d_init(spline, 
+	
+	int res = gsl_interp2d_eval_e()
+	if (res == GSL_EDOM) {
+	
+	}
+	
 	return 0;
 }
 */
@@ -352,7 +441,7 @@ SplineInfo* prep_Pk_constz(int gravity, double z_from, double z_to, SplineInfo *
 			Pks[j] = Pk_cur;
 		}
 		
-		free(Dplus_tmp);			
+		//free(Dplus_tmp);			
 	
 	} else if (gravity == F4 || gravity == F5 || gravity == F6) {
 		//Dplus depends on k		

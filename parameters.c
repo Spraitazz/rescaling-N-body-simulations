@@ -5,12 +5,26 @@ int set_params() {
 	//current cosmology
 	h = 0.678; //dimensionless hubble parameter
 	H0 = 100.0*h; //[kms^-1 Mpc^-1]
-	omega_m = 0.24;
-	omega_v = 1.0 - omega_m;
-	omega_r = 0.0;
+	omega_m_0 = 0.24;
+	omega_v_0 = 1.0 - omega_m_0;
+	omega_r_0 = 0.0;
 	omega = 1.0;	
 	G = 6.673e-11; //[N m^2 kg^-2]
-	fg = pow(omega_m, 0.545);
+	fg = pow(omega_m_0, 0.545);
+	
+	omega_m_primed = omega_m_0;
+	
+	/*
+	Parameters current_params = {
+		h = 0.678, //dimensionless hubble parameter
+		H0 = 100.0*h, //[kms^-1 Mpc^-1]
+		omega_m = 0.24,
+		omega_v = 1.0 - omega_m,
+		omega_r = 0.0,
+		omega = 1.0,	
+		fg = pow(omega_m, 0.545)	
+	};
+	*/
 	
 	//HOD parameters at Mmax -19.5
 	//http://arxiv.org/pdf/1005.2413v2.pdf
@@ -30,7 +44,12 @@ int set_params() {
 	beta = -0.13;
 	
 	//virialisation overdensity treshold
-	del_nl = 178.0;		
+	//only EdS??
+	del_nl = 178.0;
+	
+	//from  seminal paper by Bullock et Bullock (not really, its from Bullock at al where they give the cdm = 1/(1+z) (m/mstar)^a
+	//double omega_m_z = omega_m*pow(a_cur, -3.0)*pow(H0/H, 2.0);
+	//del_nl = (18.0*pi*pi + 82.0*(omega_m_z - 1.0) - 39.0*pow(omega_m_z - 1.0, 2.0)) / omega_m_z; 		
 
 	//for D+ calculation
 	lambda_F4 = 1.0/0.042; //[h Mpc^-1]	

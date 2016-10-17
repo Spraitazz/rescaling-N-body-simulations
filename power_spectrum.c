@@ -1,71 +1,4 @@
-int populateParticles() {	
-	for (int i = 0; i < particle_no; i++) {	
-		//positions		
-		particles[i][0] = randomDouble(0.0, volume_limits[0]);	
-		particles[i][1] = randomDouble(0.0, volume_limits[1]);
-		particles[i][2] = randomDouble(0.0, volume_limits[2]);
-		
-		// velocities
-		particles[i][3] = 0.0;	
-		particles[i][4] = 0.0;
-		particles[i][5] = 0.0;	
-		
-		// mass
-		particles[i][6] = 0.0;
-	}				
-	return 0;
-}
-
-int populateHaloes(double halo_mass) {	
-	for (int i = 0; i < halo_no; i++) {	
-		//positions		
-		particles[i][0] = randomDouble(0.0, volume_limits[0]);	
-		particles[i][1] = randomDouble(0.0, volume_limits[1]);
-		particles[i][2] = randomDouble(0.0, volume_limits[2]);
-		
-		// velocities
-		particles[i][3] = 0.0;	
-		particles[i][4] = 0.0;
-		particles[i][5] = 0.0;	
-		
-		// mass
-		particles[i][6] = halo_mass;
-	}				
-	return 0;
-}
-
-int populateParticles_lattice() {
-	if (particle_no != cells[0]*cells[1]*cells[2]) {
-		printf("for lattice particle number should equal cell number\n");
-		exit(0);
-	}	
-	double cellSizes[3];
-	cellSizes[0] = volume_limits[0] / (double) cells[0];
-	cellSizes[1] = volume_limits[1] / (double) cells[1];
-	cellSizes[2] = volume_limits[2] / (double) cells[2];	
-	
-	//placing particle in center of cell
-	for (int i = 0; i < cells[0]; i++) {
-		for (int j = 0; j < cells[1]; j++) {
-			for (int k = 0; k < cells[2]; k++) {
-				particles[arr_ind(i,j,k)][0] = ((double)i + 0.5) * cellSizes[0];
-				particles[arr_ind(i,j,k)][1] = ((double)j + 0.5) * cellSizes[1];
-				particles[arr_ind(i,j,k)][2] = ((double)k + 0.5) * cellSizes[2];
-								
-				// velocities
-				particles[arr_ind(i,j,k)][3] = 0.0;	
-				particles[arr_ind(i,j,k)][4] = 0.0;
-				particles[arr_ind(i,j,k)][5] = 0.0;	
-		
-				// mass
-				particles[arr_ind(i,j,k)][6] = 0.0;
-			}
-		}
-	}
-
-	return 0;
-}
-
+/*
 int toRedshift(double a) {		
 	for (int i = 0; i < particle_no; i++) {		
 		particles[i][2] += particles[i][5] / (a*H0);	//z-axis line of sight		
@@ -73,22 +6,53 @@ int toRedshift(double a) {
 	}	
 	return 0;
 }
+*/
 
-int populateGrid() {
+int populateGrid(Particle_Catalogue *catalogue, int grid_func) {
+	if (grid_func == CIC) {
+		populateGridCIC(catalogue);
+	} else if (grid_func == NGP) {
+		populateGridNGP(catalogue);	
+	} else {
+		printf("grid func neither NGP nor CIC in populateGrid() \n");
+		exit(0);
+	}
+	return 0;
+}
+
+int populateGridNGP(Particle_Catalogue *catalogue) {
 	int grid_x, grid_y, grid_z, index;		
-	for (int i = 0; i < particle_no; i++) {
-		grid_x = (int) floor((particles[i][0] / volume_limits[0]) * (double) cells[0]);
-		grid_y = (int) floor((particles[i][1] / volume_limits[1]) * (double) cells[1]);
-		grid_z = (int) floor((particles[i][2] / volume_limits[2]) * (double) cells[2]);		
+	for (int i = 0; i < catalogue->particle_no; i++) {
+		grid_x = (int) floor((catalogue->particles[i].x / volume_limits[0]) * (double) cells[0]);
+		grid_y = (int) floor((catalogue->particles[i].y / volume_limits[1]) * (double) cells[1]);
+		grid_z = (int) floor((catalogue->particles[i].z / volume_limits[2]) * (double) cells[2]);		
 		index = arr_ind(grid_x, grid_y, grid_z);
 		grid[index] += 1.0;		
 	}
 	WindowFunc_pow = 1.0;
 	return 0;
 }
-
+/*
+int populateGrid_massRange(double M_min, double M_max) {
+	int grid_x, grid_y, grid_z, index, particles_gridded;
+	particles_gridded = 0;			
+	for (int i = 0; i < particle_no; i++) {
+		if (M_max*(1.000001) > particles[i][6] && particles[i][6] > M_min*(0.999999)) {
+			particles_gridded += 1;
+			grid_x = (int) floor((particles[i][0] / volume_limits[0]) * (double) cells[0]);
+			grid_y = (int) floor((particles[i][1] / volume_limits[1]) * (double) cells[1]);
+			grid_z = (int) floor((particles[i][2] / volume_limits[2]) * (double) cells[2]);		
+			index = arr_ind(grid_x, grid_y, grid_z);
+			grid[index] += 1.0;	
+		}	
+	}
+	WindowFunc_pow = 1.0;
+	return particles_gridded;
+}
+*/
 //http://background.uchicago.edu/~whu/Courses/Ast321_11/pm.pdf p14
-int populateGridCIC() {
+int populateGridCIC(Particle_Catalogue *catalogue) {
+
 	int grid_x, grid_y, grid_z;
 	double xc, yc, zc, dx, dy, dz, tx, ty, tz;
 	double cellSizes[3];
@@ -96,19 +60,21 @@ int populateGridCIC() {
 	cellSizes[1] = volume_limits[1] / (double) cells[1];
 	cellSizes[2] = volume_limits[2] / (double) cells[2];	
 	
-	for (int i = 0; i < particle_no; i++) {
-		grid_x = (int) floor((particles[i][0] / volume_limits[0]) * (double) cells[0]);
-		grid_y = (int) floor((particles[i][1] / volume_limits[1]) * (double) cells[1]);
-		grid_z = (int) floor((particles[i][2] / volume_limits[2]) * (double) cells[2]);			
+	for (int i = 0; i < catalogue->particle_no; i++) {
+		//printf("%d in cic b4, x: %lf, y: %lf, z: %lf \n", i, catalogue->particles[i].x);
+		grid_x = (int) floor((catalogue->particles[i].x / volume_limits[0]) * (double) cells[0]);
+		grid_y = (int) floor((catalogue->particles[i].y / volume_limits[1]) * (double) cells[1]);
+		grid_z = (int) floor((catalogue->particles[i].z / volume_limits[2]) * (double) cells[2]);			
+		//printf("%d in cic \n", i);
 		
 		xc = cellSizes[0] * ((double) grid_x + 0.5);
 		yc = cellSizes[1] * ((double) grid_y + 0.5);
 		zc = cellSizes[2] * ((double) grid_z + 0.5);
 		
 		//must be from 0 to 1
-		dx = fabs(particles[i][0] - xc) / cellSizes[0];
-		dy = fabs(particles[i][1] - yc) / cellSizes[1];
-		dz = fabs(particles[i][2] - zc) / cellSizes[2];	
+		dx = fabs(catalogue->particles[i].x - xc) / cellSizes[0];
+		dy = fabs(catalogue->particles[i].y - yc) / cellSizes[1];
+		dz = fabs(catalogue->particles[i].z - zc) / cellSizes[2];	
 		
 		tx = 1.0 - dx;
 		ty = 1.0 - dy;
@@ -118,7 +84,9 @@ int populateGridCIC() {
 		int xplus, yplus, zplus;
 		xplus = (grid_x + 1) % cells[0];
 		yplus = (grid_y + 1) % cells[1];
-		zplus = (grid_z + 1) % cells[2];		
+		zplus = (grid_z + 1) % cells[2];
+		
+		//printf("just just %d, grid_x %d, grid_y %d , grid_z %d, xplus %d, yplus %d, zplus %d \n", i, grid_x, grid_y, grid_z, xplus, yplus, zplus);		
 
 		grid[arr_ind(grid_x, grid_y, grid_z)] += tx*ty*tz;	
 		grid[arr_ind(xplus, grid_y, grid_z)] += dx*ty*tz;
@@ -132,8 +100,80 @@ int populateGridCIC() {
 	WindowFunc_pow = 2.0;
 	return 0;
 }
+/*
+int populateGridCIC_massRange(double M_min, double M_max) {
+	int grid_x, grid_y, grid_z;
+	double xc, yc, zc, dx, dy, dz, tx, ty, tz;
+	double cellSizes[3];
+	cellSizes[0] = volume_limits[0] / (double) cells[0];
+	cellSizes[1] = volume_limits[1] / (double) cells[1];
+	cellSizes[2] = volume_limits[2] / (double) cells[2];
+	
+	int particles_gridded = 0;			
+	
+	for (int i = 0; i < particle_no; i++) {
+	
+		if (M_max*(1.000001) > particles[i][6] && particles[i][6] > M_min*(0.999999)) {
+			
+			particles_gridded += 1;
+			
+			grid_x = (int) floor((particles[i][0] / volume_limits[0]) * (double) cells[0]);
+			grid_y = (int) floor((particles[i][1] / volume_limits[1]) * (double) cells[1]);
+			grid_z = (int) floor((particles[i][2] / volume_limits[2]) * (double) cells[2]);			
+		
+			xc = cellSizes[0] * ((double) grid_x + 0.5);
+			yc = cellSizes[1] * ((double) grid_y + 0.5);
+			zc = cellSizes[2] * ((double) grid_z + 0.5);
+		
+			//must be from 0 to 1
+			dx = fabs(particles[i][0] - xc) / cellSizes[0];
+			dy = fabs(particles[i][1] - yc) / cellSizes[1];
+			dz = fabs(particles[i][2] - zc) / cellSizes[2];	
+		
+			tx = 1.0 - dx;
+			ty = 1.0 - dy;
+			tz = 1.0 - dz;
+		
+			//ensure PBC
+			int xplus, yplus, zplus;
+			xplus = (grid_x + 1) % cells[0];
+			yplus = (grid_y + 1) % cells[1];
+			zplus = (grid_z + 1) % cells[2];		
 
+			grid[arr_ind(grid_x, grid_y, grid_z)] += tx*ty*tz;	
+			grid[arr_ind(xplus, grid_y, grid_z)] += dx*ty*tz;
+			grid[arr_ind(xplus, yplus, grid_z)] += dx*dy*tz;	
+			grid[arr_ind(xplus, grid_y, zplus)] += dx*ty*dz;
+			grid[arr_ind(xplus, yplus, zplus)] += dx*dy*dz;			
+			grid[arr_ind(grid_x, yplus, grid_z)] += tx*dy*tz;		
+			grid[arr_ind(grid_x, grid_y, zplus)] += tx*ty*dz;
+			grid[arr_ind(grid_x, yplus, zplus)] += tx*dy*dz;
+		
+		}
+			
+	}
+	WindowFunc_pow = 2.0;
+	return particles_gridded;
+}
+*/
 int gridIntoOverdensity() {
+	//average density (particles per grid box) simply particle_no / size of box
+	double N_avg = (double) particle_no / ((double) cells[0]*cells[1]*cells[2]);	
+	int index;	
+	for (int i = 0; i < cells[0]; i++) {
+		for (int j = 0; j < cells[1]; j++) {
+			for (int k = 0; k < cells[2]; k++) {	
+				//density of particles of a single box = number of particles in that box
+				//overdensity = number of particles in box / rho_avg - 1	
+				index = arr_ind(i, j, k);				
+				overdensity[index][0] = (grid[index] / N_avg) - 1.0;			
+			}
+		}
+	}
+	return 0;
+}
+
+int gridIntoOverdensity_particleNo(int particle_no) {
 	//average density (particles per grid box) simply particle_no / size of box
 	double N_avg = (double) particle_no / ((double) cells[0]*cells[1]*cells[2]);	
 	int index;	
@@ -154,6 +194,7 @@ int gridIntoOverdensity() {
 int overdensity_pk() {
     double kx, ky, kz, k, logdk, logkmin, logkmax, WindowFunc, mu, kmin, kmax;
     double fundmodes[3], nyquist[3], cellSizes[3];
+    double phase, amplitude;
     bool flag;
     int index;  
     
@@ -175,10 +216,10 @@ int overdensity_pk() {
     
     //get fourier overdensities
 	fftw_execute(overdensity_plan);		
-
-    logkmax = log10(kmax);
-	logkmin = log10(kmin);
-    logdk = init_spectrum_storage_len(spectrum_size, logkmin, logkmax); 
+    
+    BinInfo* Pk_binInfo = prep_bins(kmin, kmax, spectrum_size, LOG_BIN);
+    
+    init_spectrum_storage(spectrum_size);
 
     for (int aa = 0; aa < cells[0]; aa++) {
     	for (int bb = 0; bb < cells[1]; bb++) {
@@ -196,12 +237,12 @@ int overdensity_pk() {
 				
 				overdensity_fourier[index][0] /= ((double)cells[0]*cells[1]*cells[2]);
 				overdensity_fourier[index][1] /= ((double)cells[0]*cells[1]*cells[2]);
-				
+								
 				//Window function (convolution in real -> multip in fourier) to reduce aliased power
 				WindowFunc = 1.0;
-				if(kx != 0.0) WindowFunc *= sin(pi*kx*0.5/nyquist[0])/(pi*kx*0.5/nyquist[0]);
-				if(ky != 0.0) WindowFunc *= sin(pi*ky*0.5/nyquist[1])/(pi*ky*0.5/nyquist[1]);
-				if(kz != 0.0) WindowFunc *= sin(pi*kz*0.5/nyquist[2])/(pi*kz*0.5/nyquist[2]);
+				if (kx != 0.0) WindowFunc *= sin(pi*kx*0.5/nyquist[0])/(pi*kx*0.5/nyquist[0]);
+				if (ky != 0.0) WindowFunc *= sin(pi*ky*0.5/nyquist[1])/(pi*ky*0.5/nyquist[1]);
+				if (kz != 0.0) WindowFunc *= sin(pi*kz*0.5/nyquist[2])/(pi*kz*0.5/nyquist[2]);
 									
 				// Correct for mass assignment of randoms.
 				// Cloud in cell pow 2.0. NGP corresponds to WindowFunc rather than WindowFunc^2. 
@@ -210,7 +251,7 @@ int overdensity_pk() {
 				
 				k = sqrt(kx*kx + ky*ky + kz*kz);				
 				//unit vector along k dot n, chosen along polar axis kz
-				mu = kz / k;
+				mu = kz / k;			
 				
 				// independence_flag? Stars_and_Stripes.  one half independent. 
 				flag = false;				
@@ -218,7 +259,7 @@ int overdensity_pk() {
 				else if ((kz == 0.0) && (ky > 0.0)) { flag = true; } 
 				else if ((kz == 0.0) && (ky == 0.0) && (kx > 0.0)) { flag = true; } 
 				
-				if (flag && k >= kmin && k < kmax) pk_logbin(index, k, logkmin, logdk, mu);				
+				if (flag && k >= kmin && k < kmax) pk_logbin(index, k, mu, Pk_binInfo);				
 											  		
     		}    	
     	}    
@@ -237,24 +278,26 @@ int overdensity_pk() {
 	return 0;
 }
 
-int pk_logbin(int index, double k, double logkmin, double logdk, double mu) {
-	double fk_squared, coef_real, coef_im, L2;
+int pk_logbin(int overdensity_index, double k, double mu, BinInfo* Pk_binInfo) {
+	double fk_squared, coef_real, coef_im, L2, L4;
 	int index_log_pk;	
 
-	coef_real = overdensity_fourier[index][0];
-	coef_im = overdensity_fourier[index][1];		
+	coef_real = overdensity_fourier[overdensity_index][0];
+	coef_im = overdensity_fourier[overdensity_index][1];		
 	fk_squared = coef_real * coef_real + coef_im * coef_im;	
 	
 	//plot is VP(k) versus k
 	fk_squared *= volume;
 	
 	//SHOT NOISE, USE CAREFULLY
-	//fk_squared -= volume/particle_no;	
+	fk_squared -= volume/particle_no;	
 		
-	L2 = 0.5 * (3.0 * mu * mu - 1.0);							
-	index_log_pk = (int) floor((log10(k) - logkmin)/logdk);	
-	fk_abs_squares[index_log_pk] += fk_squared;
+	L2 = 0.5 * (3.0 * mu * mu - 1.0);
+	L4 = (1.0/8.0) * (35.0 * pow(mu, 4.0) - 30.0 * pow(mu, 2.0) + 3.0);	
+							
+	index_log_pk = x_to_bin(Pk_binInfo, k);	
 	
+	fk_abs_squares[index_log_pk] += fk_squared;	
 	k_number[index_log_pk] += 1;	
 	bin_k_average[index_log_pk] += k;
 	
@@ -268,26 +311,67 @@ int pk_logbin(int index, double k, double logkmin, double logdk, double mu) {
 	binsums_L2[index_log_pk][0] += L2;
 	binsums_L2[index_log_pk][1] += L2 * L2;	
 	binsums_L2[index_log_pk][2] += L2 * fk_squared;	
+	
+	binsums_L4[index_log_pk][0] += L4;
+	binsums_L4[index_log_pk][1] += L4 * L4;
+	binsums_L4[index_log_pk][2] += L2 * L4;
+	binsums_L4[index_log_pk][3] += L4 * fk_squared;
+
 	return 0;
 }
 
-//monopole + qudrupole
+//monopole + qudrupole + hexadecapole (pages 87, 88 of thesis)
+//M p(vec) = f(vec)
 int multipole_calc() {	
 	double margin, determinant;	
+	int signum;
 	margin = 1e-6;
-	for (int i = 0; i < spectrum_size; i++) {		
-		determinant = ((double) k_number[i]) * binsums_L2[i][1] - binsums_L2[i][0] * binsums_L2[i][0];
 	
+	gsl_matrix *M = gsl_matrix_alloc(3,3);
+	gsl_vector *f = gsl_vector_alloc(3);
+	gsl_vector *multipoles = gsl_vector_alloc(3);
+	
+	for (int i = 0; i < spectrum_size; i++) {			
+	
+		gsl_matrix_set(M, 0, 0, (double) k_number[i]);
+		gsl_matrix_set(M, 0, 1, binsums_L2[i][0]);
+		gsl_matrix_set(M, 0, 2, binsums_L4[i][0]);
+		
+		gsl_matrix_set(M, 1, 0, binsums_L2[i][0]);
+		gsl_matrix_set(M, 1, 1, binsums_L2[i][1]);
+		gsl_matrix_set(M, 1, 2, binsums_L4[i][2]);
+		
+		gsl_matrix_set(M, 2, 0, binsums_L4[i][0]);
+		gsl_matrix_set(M, 2, 1, binsums_L4[i][2]);
+		gsl_matrix_set(M, 2, 2, binsums_L4[i][1]);
+		
+		gsl_vector_set(f, 0, fk_abs_squares[i]);
+		gsl_vector_set(f, 1, binsums_L2[i][2]);
+		gsl_vector_set(f, 2, binsums_L4[i][3]);
+		
+		//https://www.gnu.org/software/gsl/manual/html_node/Linear-Algebra-Examples.html#Linear-Algebra-Examples		
+		gsl_permutation * p = gsl_permutation_alloc(3);
+
+		gsl_linalg_LU_decomp(M, p, &signum);
+		
+		determinant = gsl_linalg_LU_det(M, signum);
+		
 		//only has a meaningful value for a nonzero determinant
-		if (determinant > margin) {			
-			power_spectrum_monopole[i] = binsums_L2[i][1]*fk_abs_squares[i] - binsums_L2[i][0]*binsums_L2[i][2];
-			power_spectrum_quadrupole[i] = ((double) k_number[i])*binsums_L2[i][2] - binsums_L2[i][0]*fk_abs_squares[i];
-			power_spectrum_monopole[i] /= determinant;
-			power_spectrum_quadrupole[i] /= determinant;
+		if (determinant > margin || determinant < -margin) {
+			gsl_linalg_LU_solve(M, p, f, multipoles);
+			monopole[i] = gsl_vector_get(multipoles, 0);
+			quadrupole[i] = gsl_vector_get(multipoles, 1);
+			hexadecapole[i] = gsl_vector_get(multipoles, 2);			
 		} else {
 			toRemove_bins[i] = true;
 		}
-	}		
+		
+		gsl_permutation_free(p);
+		
+	}
+	gsl_matrix_free(M);
+	gsl_vector_free(f);		
+	gsl_vector_free(multipoles);
 	return 0;
 }
 
@@ -296,7 +380,7 @@ int multipole_calc() {
 int just_print_monopole(char filename[]) {
 	FILE *pk_out_file = fopen(filename, "w");	
 	for (int i = 0; i < spectrum_size; i++) {
-		if (k_number[i] > 0) {
+		if (toRemove_bins[i] == false) {
 			fprintf(pk_out_file, "%lf \t %le \t %d \t %lf \t %lf \n", bin_k_average[i], fk_abs_squares[i]/(double)k_number[i], k_number[i], bin_k_min[i], bin_k_max[i]);
 		}
 	}
@@ -306,27 +390,27 @@ int just_print_monopole(char filename[]) {
 
 
 //prints k, monopole, quadrupole, measurements in bin
-int pk_to_file_logbin(const char filename[]) {
-	FILE *pk_out_file = fopen(filename, "w");
+int pk_to_file(const char fileName[]) {
+	FILE *f = fopen(fileName, "w");
 	for (int i = 0; i < spectrum_size; i++) {
-		if (toRemove_bins[i] == false) {			
-			fprintf(pk_out_file, pk_format, bin_k_average[i], power_spectrum_monopole[i], power_spectrum_quadrupole[i], k_number[i], bin_k_min[i], bin_k_max[i]);
+		if (toRemove_bins[i] == false && monopole[i] > 1e-6) {			
+			fprintf(f, pk_format, bin_k_average[i], monopole[i], quadrupole[i], hexadecapole[i], k_number[i], bin_k_min[i], bin_k_max[i]);
 		} 
 	}	
-	fclose(pk_out_file);
+	fclose(f);
 	return 0;
 }
 
-int delsq_to_file_logbin(const char filename[]) {
-	FILE *delsq_out_file = fopen(filename, "w");	
+int delsq_to_file(const char filename[]) {
+	FILE *f = fopen(filename, "w");	
 	double delsq;
 	for (int i = 0; i < spectrum_size_final; i++) {				
 		if (toRemove_bins[i] == false) {
-			delsq = pow(bin_k_average[i], 3.0)*power_spectrum_monopole[i]/(2.0*pi*pi);
-			fprintf(delsq_out_file, pk_format, bin_k_average[i], delsq, power_spectrum_quadrupole[i], k_number[i], bin_k_min[i], bin_k_max[i]);
+			delsq = pow(bin_k_average[i], 3.0)*monopole[i]/(2.0*pi*pi);
+			fprintf(f, pk_format, bin_k_average[i], delsq, quadrupole[i], hexadecapole[i], k_number[i], bin_k_min[i], bin_k_max[i]);
 		}	
 	}
-	fclose(delsq_out_file);
+	fclose(f);
 	return 0;
 }
 

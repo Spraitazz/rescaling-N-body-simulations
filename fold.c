@@ -1,35 +1,39 @@
-int Jenkins_fold_volume() {	
+Particle* Jenkins_fold_volume(Particle_Catalogue *catalogue) {	
 
-	calloc2D_double(&particles_save, particle_no, 7); //1st and 2nd dimensions
+	//calloc2D_double(&particles_save, particle_no, 7); //1st and 2nd dimensions
+	Particle* particles_saved = initParticles(catalogue->particle_no);
 	volume_limits[0] /= Jenkins_foldfactor;
 	volume_limits[1] /= Jenkins_foldfactor;
-	volume_limits[2] /= Jenkins_foldfactor;		
+	volume_limits[2] /= Jenkins_foldfactor;	
 	
-	for (int i = 0; i < particle_no; i++) {
-		memcpy(particles_save[i], particles[i], 7 * sizeof(*particles_save[i]));
+	memcpy(particles_saved, catalogue->particles, (size_t)catalogue->particle_no * sizeof(*particles_saved));	
 	
-		particles[i][0] = fmod(particles[i][0], volume_limits[0]);
-		particles[i][1] = fmod(particles[i][1], volume_limits[1]);
-		particles[i][2] = fmod(particles[i][2], volume_limits[2]);	
+	for (int i = 0; i < particle_no; i++) {	
+		catalogue->particles[i].x = fmod(catalogue->particles[i].x, volume_limits[0]);
+		catalogue->particles[i].y = fmod(catalogue->particles[i].y, volume_limits[1]);
+		catalogue->particles[i].z = fmod(catalogue->particles[i].z, volume_limits[2]);
 	}
-	return 0;
+	return particles_saved;
 }
 
-int Jenkins_restore() {
-	for (int i = 0; i < particle_no; i++) {		
-		memcpy(particles[i], particles_save[i], 7 * sizeof(*particles[i]));
-	}
+int Jenkins_restore(Particle_Catalogue *catalogue, Particle** particles_saved) {
+	//for (int i = 0; i < particle_no; i++) {		
+	//	memcpy(particles[i], particles_save[i], 7 * sizeof(*particles[i]));
+	//}
+	
+	memcpy(catalogue->particles, &particles_saved, particle_no * sizeof(**particles_saved));	
 	
 	volume_limits[0] *= Jenkins_foldfactor;
 	volume_limits[1] *= Jenkins_foldfactor;
 	volume_limits[2] *= Jenkins_foldfactor;	
 	
 	Jenkins_foldfactor = 1.0;	
-	free2D_double(&particles_save, particle_no); //only second dimension needed for inner frees	
+
+	freeParticles(particles_saved);	
 	return 0;
 }
 
-FoldingInformation combine_folded(const char unfolded_path[], const char folded_path[], char pk_format[], char outFile[], double kmin, double kmax, double k_fold, bool print) {
+FoldingInformation* combine_folded(const char unfolded_path[], const char folded_path[], char pk_format[], char outFile[], double kmin, double kmax, double k_fold, int* foldPoints, bool print) {
 
 	FILE *unfolded_file = fopen(unfolded_path, "r");
 	FILE *folded_file = fopen(folded_path, "r");
@@ -37,10 +41,16 @@ FoldingInformation combine_folded(const char unfolded_path[], const char folded_
 	
 	double min_diff, k_diff, k_unfolded, k_folded, mono_unfolded;
 	double mono_folded, perc_diff_k, perc_diff_mono;
-	int len_folded, len_unfolded, min_k_ind_unfolded, min_k_ind_folded;
-	int min_diff_ind, aliasing_index_unfolded, unfold_last_ind, fold_conn_ind;	
-	int aliasing_index_folded;
-	bool max_reached;
+	
+	int len_folded, len_unfolded, min_diff_ind;
+	int uf_first_ind, uf_last_ind, uf_alias_ind; 
+	int f_first_ind, f_last_ind;
+	int v = 0;	
+	
+	bool max_reached = false;
+	bool success = true;
+	
+	FoldingInformation *toReturn = malloc(sizeof(*toReturn));
 
 	//CHECK FOR NULL FILES
 	if (unfolded_file == NULL) {
@@ -63,141 +73,173 @@ FoldingInformation combine_folded(const char unfolded_path[], const char folded_
 	//count lines
 	len_folded = countLines(folded_file);
 	len_unfolded = countLines(unfolded_file);
+	//printf("len uf: %d, len f: %d \n", len_unfolded, len_folded);
 
 	//[k][mono][quadro]
 	double** folded_values;
 	double** unfolded_values;
 	calloc2D_double(&folded_values, len_folded, 6);
 	calloc2D_double(&unfolded_values, len_unfolded, 6);	
+	int folded_kBins[len_folded];
+	int unfolded_kBins[len_unfolded];
 	
 	//read into arrays from the respective files
 	for (int i = 0; i < len_folded; i++) {
-		ph = fscanf(folded_file, pk_format, &folded_values[i][0], &folded_values[i][1], &folded_values[i][2], &folded_values[i][3], &folded_values[i][4], &folded_values[i][5]);		
+		ph = fscanf(folded_file, pk_format, &folded_values[i][0], &folded_values[i][1], &folded_values[i][2], &folded_values[i][3], &folded_kBins[i], &folded_values[i][4], &folded_values[i][5]);		
 	}	
 	
 	for (int i = 0; i < len_unfolded; i++) {
-		ph = fscanf(unfolded_file, pk_format, &unfolded_values[i][0], &unfolded_values[i][1], &unfolded_values[i][2], &unfolded_values[i][3], &unfolded_values[i][4], &unfolded_values[i][5]);
-	}
-
+		ph = fscanf(unfolded_file, pk_format, &unfolded_values[i][0], &unfolded_values[i][1], &unfolded_values[i][2], &unfolded_values[i][3], &unfolded_kBins[i], &unfolded_values[i][4], &unfolded_values[i][5]);
+	}	
+		
+/*
 	if (kmax > folded_values[len_folded - 1][0]) {
-		printf("kmax: %lf, more than maximum in folded file \n", kmax);	
-		exit(0);	
+		printf("kmax: %lf, more than maximum in folded file, %lf \n", kmax, folded_values[len_folded - 1][0]);	
+		//exit(0);	
 	}
+	*/
+	
 	
 	//-----------------------------------------------------------------------------------------
 	
-	//IMPORTANT: indices for connecting unfolded to folded
+	//IMPORTANT: indices for connecting unfolded to folded		
+
+	if (foldPoints == NULL) {
+		//printf("foldpoints null \n");
 	
-	//find the k index from which to begin in the unfolded file	
-	int v = 0;
-	while (!(unfolded_values[v][0] >= kmin)) {
-		v+=1;
-	}
-	min_k_ind_unfolded = v;	
+		//find the k index from which to begin in the unfolded file	
+		v = 0;
+		while (unfolded_values[v][0] < kmin) {
+			v+=1;
+		}
+		uf_first_ind = v;	
+		
+		//unfolded file start of aliasing
+		v = len_unfolded - 1;	
+		while (unfolded_values[v-1][1] < unfolded_values[v][1]) {
+			v -= 1;
+		}
+		uf_alias_ind = v;
+		
+		//folded file "start of aliasing"
+		v = 0;
+		v = len_folded - 1;	
+		while (folded_values[v-1][1] < folded_values[v][1] || folded_values[v-2][1] < folded_values[v-1][1]) {
+			//printf("v: %d \n", v);
+			v -= 1;
+		}
+		f_last_ind = v;	
+
+		//maximum is input, check for finish of file before aliasing kicks in
+		if (kmax > 0.0) {
+			v = 0;
+			while (folded_values[v][0] < kmax) {
+				v += 1;
+			}
+
+			//finish before aliasing
+			if (v < f_last_ind) {			
+				f_last_ind = v;
+				max_reached = true;
+			}
+		}
+
 	
-	//folded file start of aliasing
-	v = len_folded - 1;	
-	while (folded_values[v-1][1] < folded_values[v][1]) {
-		v -= 1;
-	}
-	aliasing_index_folded = v+1;	
+		//--------------------------------------------------------
 	
-	//maximum is input, check for finish of file before aliasing kicks in
-	if (kmax > 0.0) {
+		if (k_fold < 0.0) {
+			//finding fold point automatically		
+	
+			//find the minimum k and monopole differences combining pairs from the folded/unfolded files	
+			min_diff = DBL_MAX;
+
+			//looping through unfolded file
+			for (int i = uf_first_ind; i < uf_alias_ind; i++) {
+				k_unfolded = unfolded_values[i][0];
+				mono_unfolded = unfolded_values[i][1];
+			
+				//folded file
+				for (int j = 0; j < f_last_ind; j++) {
+					k_folded = folded_values[j][0];
+					mono_folded = folded_values[j][1];
+				
+					//make sure k is going up from unfolded to folded
+					if (k_folded > k_unfolded) {
+						perc_diff_k = (k_folded - k_unfolded) / k_unfolded;
+						perc_diff_mono = fabs((mono_folded - mono_unfolded) / mono_unfolded);
+					
+						//could POTENTIALLY just make sure monopole decreases with increasing k here (now more general)
+						if (perc_diff_mono*perc_diff_k < min_diff && perc_diff_k < 0.2) {
+											
+							min_diff = perc_diff_mono*perc_diff_k;
+							//best connection indices
+							uf_last_ind = i;
+							f_first_ind = j;						
+						
+						} 
+					}
+				}				
+			}	
+		} else {
+		
+			//folding point set, just find the necessary indices for connecting
+			if (k_fold < kmin || k_fold > kmax) {
+				printf("cannot fold below kmin OR above kmax\n");
+				exit(0);
+			} else {
+				//just find the last index where k < k_fold in the unfolded file,
+				//then jump to where k > k_fold in the folded file
+				v = 0;
+				while (unfolded_values[v][0] < k_fold) {
+					v+=1;
+				}
+				uf_last_ind = v;
+			
+				v = 0;
+				while(folded_values[v][0] < k_fold) {
+					v+=1;
+				}
+				f_first_ind = v;		
+			}	
+		}
+	
+	} else {
+	
+		uf_first_ind = foldPoints[0];
+		uf_last_ind = foldPoints[1];
+		f_first_ind = foldPoints[2];
+		f_last_ind = foldPoints[3];
+		
 		v = 0;
 		while (folded_values[v][0] < kmax) {
 			v += 1;
 		}
-		
-		aliasing_index_folded = v;
-		
+	
 		//finish before aliasing
-		if (v < aliasing_index_folded) {
-			aliasing_index_folded = v;
+		if (v < f_last_ind) {			
+			f_last_ind = v;
 			max_reached = true;
 		}
-	}
-	
-	//unfolded file start of aliasing
-	v = len_unfolded - 1;	
-	while (unfolded_values[v-1][1] < unfolded_values[v][1]) {
-		v -= 1;
-	}
-	aliasing_index_unfolded = v+1;
-	
-
-	
-	//--------------------------------------------------------
-	
-	if (k_fold < 0.0) {
-		//finding fold point automatically		
-	
-		//find the k index from which to begin in the folded file
-		//SEND JENKINS FOLD FACTOR TO THIS FUNCTION
-		v = 0;
-		//double foldfactor = folded_values[0][0] / unfolded_values[0][0];
-		//printf("foldfactor: %lf \n", foldfactor);
-		while(!(folded_values[v][0] >= kmin*2.0)) {
-			v+=1;
-		}
-		min_k_ind_folded = v;
-	
-		//find the minimum k and monopole differences combining pairs from the folded/unfolded files	
-		min_diff = 1e10;
-
-		//looping through unfolded file
-		for (int i = min_k_ind_unfolded; i < aliasing_index_unfolded-1; i++) {
-			k_unfolded = unfolded_values[i][0];
-			mono_unfolded = unfolded_values[i][1];
-			
-			//2x folded file
-			for (int j = min_k_ind_folded; j < aliasing_index_folded-1; j++) {
-				k_folded = folded_values[j][0];
-				mono_folded = folded_values[j][1];
-				
-				//make sure k is going up from unfolded to folded
-				if (k_folded > k_unfolded) {
-					perc_diff_k = (k_folded - k_unfolded) / k_unfolded;
-					perc_diff_mono = fabs((mono_folded - mono_unfolded) / mono_unfolded);
-					
-					//could POTENTIALLY just make sure monopole decreases with increasing k here (now more general)
-					if (perc_diff_mono*perc_diff_k < min_diff && perc_diff_k < 0.5) {
-											
-						min_diff = perc_diff_mono*perc_diff_k;
-						//best connection indices
-						unfold_last_ind = i;
-						fold_conn_ind = j;						
-						
-					} 
-				}
-			}				
-		}	
-	} else {
 		
-		//folding point set, just find the necessary indices for connecting
-		if (k_fold < kmin || k_fold > kmax) {
-			printf("cannot fold below kmin OR above kmax\n");
-			exit(0);
-		} else {
-			//just find the last index where k < k_fold in the unfolded file,
-			//then jump to where k > k_fold in the folded file
-			v = 0;
-			while (unfolded_values[v][0] < k_fold) {
-				v+=1;
-			}
-			unfold_last_ind = v;
-			
-			v = 0;
-			while(folded_values[v][0] < k_fold) {
-				v+=1;
-			}
-			fold_conn_ind = v;		
-		}	
+		if (uf_last_ind >= len_unfolded || f_last_ind >= len_folded) {
+			printf("file length mismatch \n");
+			fclose(unfolded_file);
+			fclose(folded_file);
+			fclose(output);
+			free2D_double(&folded_values, len_folded);
+			free2D_double(&unfolded_values, len_unfolded);
+			toReturn->success = false;
+			return toReturn;						
+		}
+		
+		//printf("in folding(), uf first ind: %d, uf last ind: %d, f first ind: %d, f last ind: %d \n", uf_first_ind, uf_last_ind, f_first_ind, f_last_ind);
+		
 	}	
 	
-	int lines_out = unfold_last_ind - min_k_ind_unfolded + aliasing_index_folded - fold_conn_ind;
+	int lines_out = (uf_last_ind - uf_first_ind) + (f_last_ind - f_first_ind);
 	
 	//INFO TO SEND TO MULTI-FILE FUNCTION
+	/*
 	FoldingInformation toReturn = {
 	.folded_values = folded_values,
 	.unfolded_values = unfolded_values,
@@ -210,6 +252,15 @@ FoldingInformation combine_folded(const char unfolded_path[], const char folded_
 	.aliasing_index = aliasing_index_folded,
 	.max_reached = max_reached
 	};
+	*/
+	
+	
+	toReturn->uf_first_ind = uf_first_ind;
+	toReturn->uf_last_ind = uf_last_ind;
+	toReturn->f_first_ind = f_first_ind;
+	toReturn->f_last_ind = f_last_ind;
+	toReturn->max_reached = max_reached; 
+	toReturn->success = true;
 	
 	//-----------------------------------------------------------------------	
 
@@ -217,23 +268,29 @@ FoldingInformation combine_folded(const char unfolded_path[], const char folded_
 	if (print) {
 		
 		double final_values[lines_out][6];
+		int final_kBins[lines_out];
 	
-		for (int i = min_k_ind_unfolded; i < unfold_last_ind; i++) {
-
+		for (int i = uf_first_ind; i < uf_last_ind; i++) {
 			for (int k = 0; k < 6; k++) {
-				final_values[i - min_k_ind_unfolded][k] = unfolded_values[i][k];
+				final_values[i - uf_first_ind][k] = unfolded_values[i][k];				
 			}
-		}		
+			final_kBins[i - uf_first_ind] = unfolded_kBins[i];
+		}
+		//printf("done unfolded \n");		
 
-		for (int i = fold_conn_ind; i < aliasing_index_folded; i++) {					
+		for (int i = f_first_ind; i < f_last_ind; i++) {					
 			for (int k = 0; k < 6; k++) {
-				final_values[(i - min_k_ind_unfolded) + unfold_last_ind - fold_conn_ind][k] = folded_values[i][k];	
+				final_values[(uf_last_ind - uf_first_ind) + i - f_first_ind][k] = folded_values[i][k];	
 			}
+			final_kBins[(uf_last_ind - uf_first_ind) + i - f_first_ind] = folded_kBins[i];
 		}
 
 		for (int i = 0; i < lines_out; i++) {
 			if (final_values[i][1] > 1e-6) {
-				fprintf(output, pk_format, final_values[i][0], final_values[i][1], final_values[i][2], (int)final_values[i][3], final_values[i][4], final_values[i][5]);
+				fprintf(output, pk_format, final_values[i][0], final_values[i][1], final_values[i][2], final_values[i][3], final_kBins[i], final_values[i][4], final_values[i][5]);
+			} else {
+				printf("monopole 0 in fold() ? \n");
+				exit(0);
 			}
 		}	
 	}	

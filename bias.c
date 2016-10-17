@@ -7,15 +7,19 @@ double f_v(double v) {
 	return A*(1.0 + 1.0/pow(q*v*v, p))*exp(-q*v*v/2.0);
 }
 
+double f_v_new(double v) {
+	return 0.0;
+}
+
 double ln_fv_deriv(double v) {
 	double q = 0.707;
 	double p = 0.3;
 	return (1.0/(1.0 + 1.0/pow(q*v*v, p)))*(1.0/pow(q,p))*(-2.0*p)*pow(v, -2.0*p - 1.0) - q*v;
 }
 
-double m_to_v(double mass, double z) {
+double m_to_v(double mass, double z, SplineInfo* variance_spline) {
 	double R = m_to_R(mass, z);
-	double sigma_R = sqrt(splint_generic(variance_spline_current, R));
+	double sigma_R = sqrt(splint_generic(variance_spline, R));
 	double v = delta_c/sigma_R;
 	return v;
 }
@@ -32,6 +36,10 @@ double b_v(double v) {
 	return 1.0 - 1.0/delta_c - (v/delta_c)*ln_fv_deriv(v);
 }
 
+double b_m(double m, double z, SplineInfo* variance_spline) {
+	return b_v(m_to_v(m, z, variance_spline));
+}
+
 double bf_over_m(double v, void * params) {
 	double* z = (double*) params;	
 	return b_v(v)*f_v(v)/v_to_m(v, z[0]);
@@ -42,10 +50,10 @@ double f_over_m(double v, void * params) {
 	return f_v(v)/v_to_m(v, z[0]);
 }
 
-int calc_b_eff(double z) {
+int calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax) {
 	double vmin, vmax;
-	vmin = m_to_v(Mmin, z);
-	vmax = m_to_v(Mmax, z);
+	vmin = m_to_v(Mmin, z, variance_spline);
+	vmax = m_to_v(Mmax, z, variance_spline);
 	
 	gsl_integration_workspace* w = gsl_integration_workspace_alloc(1000);
 	double error_top, result_top, error_bot, result_bot;
@@ -79,8 +87,8 @@ int bias_plot(double z) {
 	FILE *f = fopen(out, "w");
 	for (int i = 0; i < bins; i++) {
 		Mmin += i*dm;
-		vmin = m_to_v(Mmin, z);
-		calc_b_eff(z);
+		//vmin = m_to_v(Mmin, z);
+		//calc_b_eff(z, SplineInfo* variance_spline);
 		fprintf(f, "%le \t %le \n", vmin, b_eff);
 	}
 	fclose(f);

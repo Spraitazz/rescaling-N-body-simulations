@@ -1,15 +1,3 @@
-double z_to_a(double z) {
-	return 1.0/(z + 1.0); 
-}
-
-double a_to_z(double a) {
-	return 1.0/a - 1.0;
-}
-
-double H_a(double a) {
-	return H0*sqrt(omega_v + omega_m*pow(a,-3.0) + omega_r*pow(a,-4.0) + (1.0 - omega)*pow(a,-2.0));	
-}
-
 double z_to_t_int(double z, void * params) {
 	params = params;	
 	return 1.0/((1.0 + z)*H_a(z_to_a(z)));
@@ -34,16 +22,18 @@ double a_to_t(double a) {
 
 int prep_redshift_spline(BinInfo *z_bin_info) {
 	redshift_spline_reversed = prep_spline_generic(z_bin_info, REVERSED, &z_to_t);
+	double minval = splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmin);
+	double maxval = splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmax);
 	
-	if (splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmin) != z_bin_info->xmax) {
-		printf("redshift spline didn't go well \n");
-		printf("%lf \t %lf \n", splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmin), z_bin_info->xmax);
+	if (!equalsDouble(z_bin_info->xmax, minval)) {
+		printf("redshift spline didn't go well (Dplus.c prep_redshift_spline()) \n");
+		printf("%lf \t %lf \n", minval, z_bin_info->xmax);
 		exit(0);
 	}
 	
-	if (splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmax) != z_bin_info->xmin) {
-		printf("redshift spline didn't go well \n");
-		printf("%lf \t %lf \n", splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmax), z_bin_info->xmin);
+	if (!equalsDouble(z_bin_info->xmin, maxval)) {
+		printf("redshift spline didn't go well (Dplus.c prep_redshift_spline()) \n");
+		printf("%lf \t %lf \n", maxval, z_bin_info->xmin);
 		exit(0);
 	}
 	
@@ -61,7 +51,7 @@ double t_to_a_analytic(double t) {
 //f[0] - Dplus dot, f[1] - Dplus double dot
 //y[0] - Dplus evaluated at some value of a, y[1] - Dplus dot, evaluated at some a
 int growth_function(double t, const double Dplus_vals[], double dDplus_dt[], void *params) {
-	double lambda_zero, lambda, k, omega_m_z, bracket_factor, a_cur, z_cur, t0;
+	double lambda_zero, lambda, k, omega_m_z_cur, bracket_factor, a_cur, z_cur, t0;
 	double R_bar, R0_bar;
 	double* parameters = (double*) params;
 	lambda_zero = parameters[0];
@@ -80,16 +70,16 @@ int growth_function(double t, const double Dplus_vals[], double dDplus_dt[], voi
 	//a_cur = pow(t/t0, 2.0/3.0);
 	
 	H = H_a(a_cur);
-	omega_m_z = omega_m*pow(a_cur, -3.0)*pow(H0/H, 2.0);	
+	omega_m_z_cur = omega_m_z(z_cur);	
 	
 	//(7), (17)
-	R0_bar = 3.0*H0*H0*(omega_m + 4.0*omega_v); 
-	R_bar = 3.0*H0*H0*(omega_m*pow(a_cur, -3.0) + 4.0*omega_v);
+	R0_bar = 3.0*H0*H0*(omega_m_0 + 4.0*omega_v_0); 
+	R_bar = 3.0*H0*H0*(omega_m_0*pow(a_cur, -3.0) + 4.0*omega_v_0);
 	lambda = sqrt(pow(lambda_zero,2.0)*pow(R0_bar/R_bar,3.0));	
 	bracket_factor = lambda*lambda*k*k/(a_cur*a_cur);
 	
 	dDplus_dt[0] = Dplus_vals[1]; //the value of the first derivative 
-	dDplus_dt[1] = (3.0/2.0)*H*H*omega_m_z*(1.0 + (1.0/3.0)*(bracket_factor)/(1.0 + bracket_factor))*Dplus_vals[0] - 2.0*H*Dplus_vals[1]; //the value of the second derivative
+	dDplus_dt[1] = (3.0/2.0)*H*H*omega_m_z_cur*(1.0 + (1.0/3.0)*(bracket_factor)/(1.0 + bracket_factor))*Dplus_vals[0] - 2.0*H*Dplus_vals[1]; //the value of the second derivative
 	return GSL_SUCCESS;
 }
 
@@ -101,6 +91,8 @@ int Dplus_calc(int gravity, double k, double** zs, double** Dpluses) {
 	double z_start, z_end, t0, lambda_zero, z_cur;
 	int status;
 	
+	//can be done better - since now z_start has to be quite high. If z_start < 3, Do one run from z~3 to z_start, figure 
+	//out dplus, dplus dot at the redshift wanted, then use them again to get the dpluses correctly
 	z_start = z_max;
 	z_end = z_min;
 	t_start = z_to_t(z_start);	
