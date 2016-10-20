@@ -50,7 +50,7 @@ double f_over_m(double v, void * params) {
 	return f_v(v)/v_to_m(v, z[0]);
 }
 
-int calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax) {
+double calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax) {
 	double vmin, vmax;
 	vmin = m_to_v(Mmin, z, variance_spline);
 	vmax = m_to_v(Mmax, z, variance_spline);
@@ -69,12 +69,12 @@ int calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax) 
 	
 	gsl_integration_qags(&F, vmin, vmax, 0, 1e-7, 1000, w, &result_bot, &error_bot);
 	
-	b_eff = result_top / result_bot;
-	printf("b_eff (effective mass bias for real catalogue ZA): %lf\n", b_eff);		
+	double b_eff = result_top / result_bot;
+	//printf("b_eff (effective mass bias for real catalogue ZA): %lf\n", b_eff);		
 	
 	gsl_integration_workspace_free(w);
 	
-	return 0;
+	return b_eff;
 }
 
 

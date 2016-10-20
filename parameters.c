@@ -10,7 +10,8 @@ int set_params() {
 	omega_r_0 = 0.0;
 	omega = 1.0;	
 	G = 6.673e-11; //[N m^2 kg^-2]
-	fg = pow(omega_m_0, 0.545);
+	//fg = pow(omega_m_0, 0.545);
+	fg = pow(omega_m_0, 0.4);
 	
 	omega_m_primed = omega_m_0;
 	

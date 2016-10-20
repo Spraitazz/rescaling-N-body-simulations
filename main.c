@@ -97,23 +97,23 @@ int main(int argc, char **argv) {
 	central_no = 0;
 	
 	//define volume for particles
-	volume_limits[0] = 1500.0;  // h^-1 Mpc 
-	volume_limits[1] = 1500.0;
-	volume_limits[2] = 1500.0;
+	volume_limits[0] = 256.0;  // h^-1 Mpc 
+	volume_limits[1] = 256.0;
+	volume_limits[2] = 256.0;
 	volume = volume_limits[0]*volume_limits[1]*volume_limits[2];	
 	
 	//define grid size, EVEN NUMBERS ONLY TO AVOID PROBLEMS, 2^n best for FFT	
-	cells[0] = 256;
-	cells[1] = 256;
-	cells[2] = 256;	
+	cells[0] = 128;
+	cells[1] = 128;
+	cells[2] = 128;	
 	
 	//allocate grid memory
 	initGrid();	
 	
 	//grid size for ZA displacements
-	cells_displ[0] = 256;
-	cells_displ[1] = 256;
-	cells_displ[2] = 256;	
+	cells_displ[0] = 128;
+	cells_displ[1] = 128;
+	cells_displ[2] = 128;	
 		
 	//spectrum bins
 	spectrum_size = 30;	

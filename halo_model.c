@@ -155,7 +155,7 @@ double halo_model_Pk(double k, double shot_noise, double twohalo_prefactor, int 
 		} else if (order == 4) {
 			// Lorentzian -> Gauss.  eval. for k=0 -> Kaiser factor.   
 			//twohalo_term *= kaiserGauss_Hexfactor(0.0, fg); 
-			twohalo_term *= Kaiser_Hexfactor(fg);
+			twohalo_term *= KaiserLorentz_Hexfactor(0.0, fg);
 		
 		} else {
 			printf("only monopole (order 0), quadrupole (order 2) and hexadecapole (order 4) available \n");

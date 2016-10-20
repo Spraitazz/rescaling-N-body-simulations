@@ -292,12 +292,8 @@ int rescale_catalogue_to_model() {
 	char sim_current[100];	
 	sprintf(sim_current, "%s/%s", mock_directory, "AllHalo_GR_1500Mpc_a0.7_1.txt");	
 	
-	//char out_final[] = "/home/jonas/Testing_GR/code/Jonas/output/rescaling/GR_rescaled_test.dat";
-	
-	char tmpFile[100];
-	sprintf(tmpFile, "%s/data/rescaling/tmp_unfolded.dat", home_directory);
-	char tmpFile2[100];
-	sprintf(tmpFile2, "%s/data/rescaling/tmp_folded.dat", home_directory);
+	char outFile_scaled[100];
+	sprintf(outFile_scaled, "%s/data/rescaling/measured_pk_scaled.dat", home_directory);
 	char outFile[100];
 	sprintf(outFile, "%s/data/rescaling/measured_pk.dat", home_directory);
 	
@@ -321,7 +317,13 @@ int rescale_catalogue_to_model() {
 	overdensity_freeMemory();
 	
 	Pk_current = input_spline_file(outFile, k_Pkmono_format, NORMAL);
-	remove(outFile);	
+	/*
+	for (int i = 0; i < 100; i++) {
+		double kcur = Pk_current->xmin + (double)i * ((Pk_current->xmax - Pk_current->xmin) / 99.0);
+		printf("k: %lf, Pk: %lf \n", kcur, splint_generic(Pk_current, kcur));
+	}
+	*/
+	//remove(outFile);	
 	Pk_target = input_spline_file(Pk_target_path, Pk_model_format, NORMAL);	
 	
 	printf("current kmin: %lf, kmax: %lf \n", Pk_current->xmin, Pk_current->xmax);
@@ -368,12 +370,11 @@ int rescale_catalogue_to_model() {
 	Pk_target_extended = extend_spline_model(Pk_target);	
 	variance_spline_target = prep_variances(rescaling_R_bin_info, Pk_target_extended);
 
+	//finding a redshift to start minimising from
 	double z_cur, z_guess, sq_diff, min_sq_diff;
 	min_sq_diff = DBL_MAX;
-	for (int i = 0; i < z_bins; i++) {
+	for (int i = 0; i < z_bins; i++) {	
 		z_cur = bin_to_x(rescaling_z_bin_info, i);
-		//printf("zbin %d, z: %lf \n", i, z_cur);
-
 		Pk_splines_zBins[i] = prep_Pk_constz(current_gravity, z_current, z_cur, Pk_current, rescaling_k_bin_info);	
 		
 		//check more points
@@ -381,12 +382,12 @@ int rescale_catalogue_to_model() {
 		if (sq_diff < min_sq_diff) {
 			min_sq_diff = sq_diff;
 			z_guess = z_cur;
-		}	
-		
+		}			
 	}	
 	
 	printf("z guess: %lf \n", z_guess);			
 	
+	//prepare OLV bins at different redshifts
 	for (int i = 0; i < z_bins; i++) {
 		z_cur = bin_to_x(rescaling_z_bin_info, i);
 		printf("zbin %d, z: %lf \n", i, z_cur);		
@@ -420,16 +421,30 @@ int rescale_catalogue_to_model() {
 	volume_limits[2] *= s;
 	volume = volume_limits[0]*volume_limits[1]*volume_limits[2];
 	
+	//ensure PBC
 	for (int i = 0; i < current_catalogue->particle_no; i++) {
 		PBC(&(current_catalogue->particles[i].x), &(current_catalogue->particles[i].y), &(current_catalogue->particles[i].z));
 	}	
 	
+	//scale masses, OMEGA M DEPENDS ON Z!!!!!!!!!!!
+	for (int i = 0; i < particle_no; i++) {		
+		current_catalogue->particles[i].mass *= pow(s, 3.0) * (omega_m_primed/omega_m_z(z_rescaled));
+	}
+	
+	mass_min_max(current_catalogue);
+	printf("AFTER RESCALING. M min: %le, M max: %le\n", Mmin, Mmax);
+	
 	overdensity_allocateMemory();
-	haloes_measure_Pk(current_catalogue, outFile, 1.0, CIC);			
+	haloes_measure_Pk(current_catalogue, outFile_scaled, 1.0, CIC);			
 	overdensity_freeMemory();	
 	
-	SplineInfo* Pk_current_rescaled = input_spline_file(outFile, k_Pkmono_format, NORMAL);
+	SplineInfo* Pk_current_rescaled = input_spline_file(outFile_scaled, k_Pkmono_format, NORMAL);
+	
 	SplineInfo_Extended* Pk_current_rescaled_extended = extend_spline(Pk_current_rescaled);
+	for (int i = 0; i < 200; i++) {
+		double kcur = 0.02 + (double)i * ((0.2 - 0.02) / 199.0);
+		printf("k: %lf, Pk: %lf \n", kcur, volume*splint_Pk(Pk_current_rescaled_extended, kcur));
+	}
 	//remove(outFile);
 	
 	//current s scaled, measured
@@ -474,11 +489,7 @@ int rescale_catalogue_to_model() {
 	
 	
 	
-	//scale masses
-	for (int i = 0; i < particle_no; i++) {
-		//OMEGA M DEPENDS ON Z!!!!!!!!!!!
-		current_catalogue->particles[i].mass = pow(s, 3.0)*omega_m_primed*current_catalogue->particles[i].mass/omega_m_z(z_rescaled);
-	}
+	
 	
 	/*	
 	//scale velocities

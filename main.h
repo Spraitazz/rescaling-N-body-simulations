@@ -9,13 +9,14 @@ double Jenkins_foldfactor = 1.0;
 //particle number in "universe"
 int particle_no, halo_no, central_no, satellite_no;
 int max_sats;
+Particle_Catalogue *all_haloes;
 
 //grid size, number of cells 
 int cells[3];
 int cells_displ[3];
 
 //particles and overlay grid
-Particle* particles;
+//Particle* particles;
 double** satellites;
 double** centrals;
 Particle* particles_save;
@@ -247,7 +248,7 @@ double b_m(double m, double z, SplineInfo* variance_spline);
 double bf_over_m(double v, void * params);
 double f_over_m(double v, void * params);
 int bias_plot(double z);
-int calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax);
+double calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax);
 
 //fold.c
 Particle* Jenkins_fold_volume(Particle_Catalogue *catalogue);

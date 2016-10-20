@@ -43,8 +43,10 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
 					//looping over dimensions, so phases prepared in advance
 					phase = (*phases)[index];
 								
-					//Gaussian filter in fourier space
+					//amplitude from expectation, Gaussian filter in fourier space
 					amplitude = sqrt(Pk) * exp(-k_sq*R_nl*R_nl/2.0);
+					//amplitude = sqrt(gsl_ran_exponential(gsl_ran_r, Pk)) * exp(-k_sq*R_nl*R_nl/2.0);
+				
 					
 					if (grid_func == CIC) {
 						WindowFunc = 1.0;					
@@ -143,7 +145,7 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
     return 0;
 }
 
-int ZA_displacements(double*** individual_displacements, SplineInfo_Extended* Pk_spline, int grid_func) {		
+int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displacements, SplineInfo_Extended* Pk_spline, int grid_func) {		
 
 	if (!ZA_mem) printf("initialize ZA memory first \n");
 	int index, grid_x, grid_y, grid_z;
@@ -172,10 +174,10 @@ int ZA_displacements(double*** individual_displacements, SplineInfo_Extended* Pk
 		
 		//collect real displacements for each particle	
 		for (int i = 0; i < particle_no; i++) {		
-			grid_x = (int) floor((particles[i].x / volume_limits[0]) * (double) cells_displ[0]);
-			grid_y = (int) floor((particles[i].y / volume_limits[1]) * (double) cells_displ[1]);
-			grid_z = (int) floor((particles[i].z / volume_limits[2]) * (double) cells_displ[2]);
-			index = arr_ind_displ(grid_x, grid_y, grid_z);		
+			grid_x = (int) floor((all_haloes->particles[i].x / volume_limits[0]) * (double) cells_displ[0]);
+			grid_y = (int) floor((all_haloes->particles[i].y / volume_limits[1]) * (double) cells_displ[1]);
+			grid_z = (int) floor((all_haloes->particles[i].z / volume_limits[2]) * (double) cells_displ[2]);
+			index = arr_ind_displ(grid_x, grid_y, grid_z);
 			
 			if (grid_func == CIC) {			
 				xc = cellSizes[0] * ((double) grid_x + 0.5);
@@ -183,9 +185,9 @@ int ZA_displacements(double*** individual_displacements, SplineInfo_Extended* Pk
 				zc = cellSizes[2] * ((double) grid_z + 0.5);
 		
 				//must be from 0 to 1
-				dx = fabs(particles[i].x - xc) / cellSizes[0];
-				dy = fabs(particles[i].y - yc) / cellSizes[1];
-				dz = fabs(particles[i].z - zc) / cellSizes[2];	
+				dx = fabs(all_haloes->particles[i].x - xc) / cellSizes[0];
+				dy = fabs(all_haloes->particles[i].y - yc) / cellSizes[1];
+				dz = fabs(all_haloes->particles[i].z - zc) / cellSizes[2];	
 		
 				tx = 1.0 - dx;
 				ty = 1.0 - dy;
@@ -209,22 +211,25 @@ int ZA_displacements(double*** individual_displacements, SplineInfo_Extended* Pk
 			}			
 			    
 			//min, max displacement.     										
-			if (displacements[index][0] > dispmax) {
-				dispmax = displacements[index][0];
-			} 	
-			if (displacements[index][1] > dispmax_im) {
-				dispmax_im = displacements[index][1];
-			}
+			if (displacements[index][0] > dispmax) dispmax = displacements[index][0];
+			if (displacements[index][1] > dispmax_im) dispmax_im = displacements[index][1];
+			
 		}						
 		ZA_clearMemory();
-	}
+	}		
 	
+	if (dispmax_im < -1e-6 || 1e-6 < dispmax_im) printf("\n Something wrong in ZA. max disp im: %lf \n", dispmax_im);
+	free(phases);
+	return 0;
+}
+
+double displacement_variance(double*** individual_displacements) {
 	//variance of |f|
 	double exp_f_sq = 0.0; //E(|f|^2)
 	double exp_sq_f = 0.0; //E(|f|)^2 
 	double f_sq, var_f;
 	
-	for (int i = 0; i < particle_no; i++) {			
+	for (int i = 0; i < all_haloes->particle_no; i++) {			
 		f_sq = pow((*individual_displacements)[i][0], 2.0) + pow((*individual_displacements)[i][1], 2.0) + pow((*individual_displacements)[i][2], 2.0);
 		exp_f_sq += f_sq;
 		exp_sq_f += sqrt(f_sq);	
@@ -234,39 +239,23 @@ int ZA_displacements(double*** individual_displacements, SplineInfo_Extended* Pk
 	exp_sq_f /= particle_no;
 	exp_sq_f = pow(exp_sq_f, 2.0);
 	var_f = exp_f_sq - exp_sq_f;
-	printf("PARTICLES sqrt var f: %lf \n", sqrt(var_f));		
-	
-	if (dispmax_im < -1e-6 || 1e-6 < dispmax_im) {
-		printf("\n Something wrong in ZA. max disp im: %lf \n", dispmax_im);
-	} 		
-	
-	free(phases);
-	return 0;
+	printf("PARTICLES sqrt var f: %lf \n", sqrt(var_f));
+
 }
 
-//double effective_bias_calculated = 0.0;
-
-int mass_debias_displacements(Particle_Catalogue *catalogue, double*** individual_displacements) {
+int mass_bias_displacements(Particle_Catalogue *catalogue, double*** individual_displacements) {
 	
-	printf("debiasing displacement field \n");
-	double bias;
-	//effective_bias_calculated = 0.0;
-	//double bias1, bias2;
-	//bias1 = b_m(particles[0][6], z_current_global, variance_spline_current);
-	//bias2 = b_m(particles[100000][6], z_current_global, variance_spline_current);
-	//printf("smaller haloes mass: %le, bias: %lf, bigger mass: %le, bias: %lf \n", particles[0][6], bias1, particles[100000][6], bias2);
+	printf("biasing displacement field \n");
+	double bias;	
 	
 	//overdensity of haloes = bias * overdensity of (dark) matter
 	for (int i = 0; i < catalogue->particle_no; i++) {
-		bias = b_m(catalogue->particles[i].mass, z_current_global, variance_spline_current);
-		//printf("mass: %le, bias: %lf \n", particles[i][6], bias);
-		//effective_bias_calculated += bias;
-		(*individual_displacements)[i][0] /= bias;
-		(*individual_displacements)[i][1] /= bias;	
-		(*individual_displacements)[i][2] /= bias;
-	}
-	
-	//effective_bias_calculated /= (double) particle_no;
+		bias = b_m(catalogue->particles[i].mass, z_current_global, variance_spline_current);		
+		(*individual_displacements)[i][0] *= bias;
+		(*individual_displacements)[i][1] *= bias;	
+		(*individual_displacements)[i][2] *= bias;
+	}	
+
 	return 0;
 }
 
@@ -274,15 +263,17 @@ int apply_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_d
 	
 	double max_r_shell = 2.0*pow((volume/catalogue->particle_no)/(4.0*pi/3.0), 1.0/3.0);
 	bool warned = false;
-	double disp_mag;
+	double disp_mag, avg_disp_mag;
+	avg_disp_mag = 0.0;
 	
-	for (int i = 0; i < particle_no; i++) {
+	for (int i = 0; i < catalogue->particle_no; i++) {
 	
 		disp_mag = sqrt(pow((*individual_displacements)[i][0], 2.0) + pow((*individual_displacements)[i][1], 2.0) + pow((*individual_displacements)[i][2], 2.0));
+		avg_disp_mag += disp_mag;
 	
 		//shell crossing check
 		if (disp_mag > max_r_shell && !warned) {
-			printf("\n Possible shell crossing, check ZA displacements. displacement magnitude: %lf, max r shell: %lf \n", disp_mag, max_r_shell);
+			//printf("\n Possible shell crossing, check ZA displacements. displacement magnitude: %lf, max r shell: %lf \n", disp_mag, max_r_shell);
 			warned = true;
 		}
 
@@ -299,11 +290,33 @@ int apply_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_d
 			
 		PBC(&(catalogue->particles[i].x), &(catalogue->particles[i].y), &(catalogue->particles[i].z));		
 	}
+	printf("particles displaced. average displacement: %lf, approximate shell cross length: %lf \n", avg_disp_mag/(double)catalogue->particle_no, max_r_shell);
+	return 0;
+}
+
+int remove_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_displacements, int redshift_space) {
+	
+	for (int i = 0; i < particle_no; i++) {
+
+		catalogue->particles[i].x -= (*individual_displacements)[i][0];
+		catalogue->particles[i].y -= (*individual_displacements)[i][1];
+		catalogue->particles[i].z -= (*individual_displacements)[i][2];	
+			
+		if (redshift_space == REDSHIFT_SPACE) {		
+			catalogue->particles[i].z -= fg * (*individual_displacements)[i][2];
+		} else if (redshift_space != REAL_SPACE) {
+			printf("expected either REAL_SPACE or REDSHIFT_SPACE for apply_ZA_displacements() \n");
+			exit(0);
+		}	
+			
+		PBC(&(catalogue->particles[i].x), &(catalogue->particles[i].y), &(catalogue->particles[i].z));		
+	}
 
 	return 0;
 }
 
-/*
+
+
 int ZA_RSD() {
 
 	Foldings *foldings = NULL;
@@ -343,9 +356,8 @@ int ZA_RSD() {
 	variance_spline_current_reversed = reverse_spline(variance_spline_current);
 	
 	
-	
-	R_mstar = splint_generic(variance_spline_current_reversed, pow(delta_c, 2.0));
-	
+	/*
+	R_mstar = splint_generic(variance_spline_current_reversed, pow(delta_c, 2.0));	
 	//m* is the nonlinear mass scale at z = 0 defined such that sigma^2 (m*) = delta_c ^ 2
 	//inverse spline returns R when sigma^2 has this value, then get m*
 	Mstar = R_to_m(R_mstar, z_current_global);
@@ -354,15 +366,7 @@ int ZA_RSD() {
 	sprintf(cdmOut, "%s/data/cdm.dat", home_directory);
 	print_cdm(cdmOut);
 	exit(0);
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	*/
 	
 	
 	R_nl = splint_generic(variance_spline_current_reversed, 1.0);	
@@ -371,51 +375,53 @@ int ZA_RSD() {
 	sigma_exp_smoothed = sqrt(expected_variance_smoothed(R_nl, Pk_current_extended));
 	printf("expected standard deviation of smoothed displacement: %lf \n", sigma_exp_smoothed);				
 	
-	char outFile[100], outFile2[100], outFile3[100], outFile4[100], outFile5[100], out_model[100], out_model_debiased[100];
-	sprintf(out_model, "%s/data/ZA/model_pk.dat", home_directory);
+	char outFile_realspace[100], outFile_redshift[100], out_model_realspace[100], out_model_redshift[100];
+	sprintf(out_model_realspace, "%s/data/ZA/model_real_pk.dat", home_directory);
+	sprintf(out_model_redshift, "%s/data/ZA/model_redshift_f4_pk.dat", home_directory);
 		
 	//k bins for models
 	BinInfo* model_bin_info = prep_bins(0.02, 1.0, 500, LOG_BIN);
 	
-	particle_no = 128*128*128;
-	particles = initParticles(particle_no);
-	
-	//normal
+	particle_no = 128*128*128;	
+
 	//double SN = volume/particle_no;
 	double SN = 0.0;
-	haloModel_out(out_model, model_bin_info, SN, 1.0, REDSHIFT_SPACE, Pk_current_extended);				
+	haloModel_out(out_model_redshift, model_bin_info, SN, 1.0, REDSHIFT_SPACE, Pk_current_extended);	
+	//haloModel_out(out_model_realspace, model_bin_info, SN, 1.0, REAL_SPACE, Pk_current_extended);			
 	
-	double** individual_displacements;		
-
+	double** individual_displacements;	
 	
-	for (int i = 0; i < 30; i++) {
+	for (int i = 0; i < 20; i++) {
 	
 		printf("\n RUN %d \n", i);	
 		
-		sprintf(outFile, "%s/data/ZA/multipoles/ZA_RSD_pk_%d.dat", home_directory, i);		
+		//sprintf(outFile_realspace, "%s/data/ZA/multipoles/ZA_real_f4_pk_%d.dat", home_directory, i);	
+		sprintf(outFile_redshift, "%s/data/ZA/multipoles/ZA_redshift_f4_pk_%d.dat", home_directory, i);		
 
-		populateParticles_lattice(&particles, particle_no);		
+		all_haloes = populateParticles_lattice(particle_no);		
 		
 		calloc2D_double(&individual_displacements, particle_no, 3);
 		ZA_allocateMemory();
-		ZA_displacements(&individual_displacements, Pk_current_extended, NGP);		
+		ZA_displacements(all_haloes, &individual_displacements, Pk_current_extended, NGP);		
 		ZA_freeMemory();
 		
 		//mass_debias_displacements(&individual_displacements);		
 		printf("Applying ZA displacement field \n");
-		apply_ZA_displacements(&individual_displacements, REDSHIFT_SPACE);
-		free2D_double(&individual_displacements, particle_no);		
-	
+		//apply_ZA_displacements(all_haloes, &individual_displacements, REAL_SPACE);
+		
 		overdensity_allocateMemory();
 		printf("Measuring Pk \n");
+		//haloes_measure_Pk(all_haloes, outFile_realspace, 1.0, CIC);	
+		//remove_ZA_displacements(all_haloes, &individual_displacements, REAL_SPACE);	
 		
-		//all haloes
-		haloes_measure_Pk(&particles, particle_no, outFile, 1.0, CIC);		
+		apply_ZA_displacements(all_haloes, &individual_displacements, REDSHIFT_SPACE);
+		haloes_measure_Pk(all_haloes, outFile_redshift, 1.0, CIC);		
 
-		//foldings = measure_Pk(foldings, 0.0, 0.6, outFile);		
+		free2D_double(&individual_displacements, particle_no);	
 		
 		overdensity_freeMemory();
-		clearParticles(&particles);	
+		free(all_haloes->particles);
+		free(all_haloes);
 		
 	}
 	
@@ -428,7 +434,7 @@ int ZA_RSD() {
 	return 0;
 }
 
-*/
+
 
 
 /*
@@ -439,6 +445,7 @@ int ST_bias() {
 	//model spline for Pk
 	char Pk_in_model[100];
 	sprintf(Pk_in_model, "%s/data/linear_matter_pk_sig8_0.593_z_0.75.dat", home_directory);
+	//sprintf(Pk_in_model, "%s/data/linear_matter_pk_0.76.dat", home_directory);
 	SplineInfo* Pk_current = input_spline_file(Pk_in_model, Pk_model_format, NORMAL);
 
 	//binning
@@ -449,13 +456,13 @@ int ST_bias() {
 	k_max = Pk_current->xmax;	
 	z_min = 0.0;
 	z_max = 3.5;
-	double R_min = 0.05;
-	double R_max = 6.5;
+	double R_min = 0.01;
+	double R_max = 7.5;
 	rescaling_k_bin_info = prep_bins(k_min, k_max, k_bins, LOG_BIN);
 	rescaling_z_bin_info = prep_bins(z_min, z_max, z_bins, NORMAL_BIN);
 	
 	//PARAMETERS
-	z_current_global = 1.5;	
+	z_current_global = 3.5;	
 
 	//for Dplus things
 	z_to_t_workspace = gsl_integration_workspace_alloc(z_to_t_workspace_size);
@@ -465,6 +472,7 @@ int ST_bias() {
 	Pk_current = prep_Pk_constz(GR, 0.75, z_current_global, Pk_current, rescaling_k_bin_info);	
 	Pk_current_extended = extend_spline_model(Pk_current);
 	
+	//OLV splines
 	rescaling_R_bin_info = prep_bins(R_min, R_max, 500, LOG_BIN);
 	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
 	variance_spline_current = prep_variances(rescaling_R_bin_info, Pk_current_extended);
@@ -472,87 +480,71 @@ int ST_bias() {
 	
 	R_nl = splint_generic(variance_spline_current_reversed, 1.0);	
 	printf("Rnl is: %le \n", R_nl);
+	//R_nl = 10.0;
 	
 	sigma_exp_smoothed = sqrt(expected_variance_smoothed(R_nl, Pk_current_extended));
 	printf("expected standard deviation of smoothed displacement: %lf \n", sigma_exp_smoothed);				
 	
-	char outFile[100], outFile2[100], outFile3[100], outFile4[100], outFile5[100], out_model[100], out_model_debiased[100];
-	sprintf(out_model, "%s/data/ZA/model_pk.dat", home_directory);
-	char out_model_beff[100];
-	char out_model_bvmin[100];
-	char out_model_bvmax[100];
+	char outFile[100], outFile2[100], outFile3[100];
+	char out_model_beff[100], out_model_bvmin[100], out_model_bvmax[100];
 	sprintf(out_model_beff, "%s/data/bias_disp/model_pk_beff.dat", home_directory);
 	sprintf(out_model_bvmin, "%s/data/bias_disp/model_pk_bvmin.dat", home_directory);
 	sprintf(out_model_bvmax, "%s/data/bias_disp/model_pk_bvmax.dat", home_directory);
-	//sprintf(out_model_debiased, "%s/data/bias_disp/model_pk_debiased.dat", home_directory);	
 	
 	//k bins for models
 	BinInfo* model_bin_info = prep_bins(0.02, 1.0, 500, LOG_BIN);
 	
-	particle_no = 128*128*128;
-	halo_no = particle_no;
-	initParticles();
+	particle_no = 128*128*128;	
 	
-	Mmin = 1e13;
-	Mmax = 1e14;
+	Mmin = 5e10;
+	Mmax = 5e11;
 	double fv_min = f_v(m_to_v(Mmin, z_current_global, variance_spline_current));
 	double fv_max = f_v(m_to_v(Mmax, z_current_global, variance_spline_current));
 	int Nbig = (int) particle_no/(1.0 + (fv_min/fv_max));
-	int Nsmall = particle_no - Nbig;
-	if (Nbig + Nsmall != particle_no) {
-		printf("?? \n");
-		exit(0);
-	}
+	int Nsmall = particle_no - Nbig;	
+
+	double b_eff = calc_b_eff(z_current_global, variance_spline_current, Mmin, Mmax);
+	double bv_min = b_m(Mmin, z_current_global, variance_spline_current);
+	double bv_max = b_m(Mmax, z_current_global, variance_spline_current);
+	printf("frac: %lf, particles: %d, beff: %lf, Nbig: %d, bv_Mmax: %lf, Nsmall: %d, bv_Mmin: %lf \n", fv_min/fv_max, particle_no, b_eff, Nbig, bv_max, Nsmall, bv_min);	
 	
-	calc_b_eff(z_current_global, variance_spline_current, Mmin, Mmax);
-	double bv_min = b_v(m_to_v(Mmin, z_current_global, variance_spline_current));
-	double bv_max = b_v(m_to_v(Mmax, z_current_global, variance_spline_current));
-	printf("frac: %lf, particles: %d, beff: %lf, Nbig: %d, bv_Mmax: %lf, Nsmall: %d, bv_Mmin: %lf \n", fv_min/fv_max, particle_no, b_eff, Nbig, bv_max, Nsmall, bv_min);
-	//together -> mono modified by beff
-	//Mmin -> mono modified by b(vmin)
-	//Mmax -> mono modified by b(vmax)
-	
-	//normal
-	double SN = volume/particle_no;
-	//double SN = 0.0;
-	
-	haloModel_out(out_model_beff, model_bin_info, SN, pow(b_eff, -2.0), REAL_SPACE, Pk_current_extended);	
-	haloModel_out(out_model_bvmin, model_bin_info, volume/Nsmall, pow(bv_min, -2.0), REAL_SPACE, Pk_current_extended);
-	haloModel_out(out_model_bvmax, model_bin_info, volume/Nbig, pow(bv_max, -2.0), REAL_SPACE, Pk_current_extended);			
+	haloModel_out(out_model_beff, model_bin_info, volume/particle_no, pow(b_eff, 2.0), REAL_SPACE, Pk_current_extended);	
+	haloModel_out(out_model_bvmin, model_bin_info, volume/Nsmall, pow(bv_min, 2.0), REAL_SPACE, Pk_current_extended);
+	haloModel_out(out_model_bvmax, model_bin_info, volume/Nbig, pow(bv_max, 2.0), REAL_SPACE, Pk_current_extended);
 	
 	double** individual_displacements;
-	calloc2D_double(&individual_displacements, particle_no, 3);
+	
 	
 	int particles_gridded;
 	
-	for (int i = 0; i < 30; i++) {
+	for (int i = 0; i < 20; i++) {
 	
-		printf("\n RUN %d \n", i);
-	
+		printf("\n RUN %d \n", i);	
 		sprintf(outFile, "%s/data/bias_disp/debiased/ZA_debiased_pk_%d.dat", home_directory, i);
 		sprintf(outFile2, "%s/data/bias_disp/debiased/ZA_debiased_1e13_pk_%d.dat", home_directory, i);
 		sprintf(outFile3, "%s/data/bias_disp/debiased/ZA_debiased_1e14_pk_%d.dat", home_directory, i);
-	
 
-		//populateParticles();	
-		populateHaloes_diffMass(Mmin, Mmax, Nbig);	
+		all_haloes = populateHaloes_twoMasses(Mmin, Mmax, particle_no, Nbig);
+		printf("populated all haloes, all: %d \n", all_haloes->particle_no);
 		
+		calloc2D_double(&individual_displacements, particle_no, 3);
 		ZA_allocateMemory();
-		ZA_displacements(&individual_displacements, Pk_current_extended, NGP);		
+		ZA_displacements(all_haloes, &individual_displacements, Pk_current_extended, NGP);		
 		ZA_freeMemory();
-		
-		mass_debias_displacements(&individual_displacements);		
+
+		mass_bias_displacements(all_haloes, &individual_displacements);		
 		printf("Applying ZA displacement field \n");
-		apply_ZA_displacements(&individual_displacements, REAL_SPACE);			
+		apply_ZA_displacements(all_haloes, &individual_displacements, REAL_SPACE);			
 	
 		overdensity_allocateMemory();
 		printf("Measuring Pk \n");
 		
 		//all haloes
-		haloes_measure_Pk(outFile, 1.0, CIC);		
+		haloes_measure_Pk(all_haloes, outFile, 1.0, CIC);		
+		
 		
 		//1e13 mass Pk measurement
-		particles_gridded = populateGridCIC_massRange(0.99*Mmin, 1.01*Mmin);	
+		particles_gridded = populateGridCIC_massRange(all_haloes, 0.99*Mmin, 1.01*Mmin);	
 		gridIntoOverdensity_particleNo(particles_gridded);	
 		overdensity_pk();
 		pk_to_file(outFile2);
@@ -561,35 +553,26 @@ int ST_bias() {
 		free_spectrum_storage();
 		
 		//1e14 mass Pk measurement
-		particles_gridded = populateGridCIC_massRange(0.99*Mmax, 1.01*Mmax);	
+		particles_gridded = populateGridCIC_massRange(all_haloes, 0.99*Mmax, 1.01*Mmax);	
 		gridIntoOverdensity_particleNo(particles_gridded);	
 		overdensity_pk();
 		pk_to_file(outFile3);
 		clearGrid();
 		overdensity_clearMemory();	
-		free_spectrum_storage();
-		
+		free_spectrum_storage();	
 		
 
-		//foldings = measure_Pk(foldings, 0.0, 0.6, outFile);
-		//haloes_measure_Pk(outFile, 1.0, NGP);
-
-		overdensity_freeMemory();
-	
-		clearParticles();
-		
+		overdensity_freeMemory();		
+		free(all_haloes->particles);
+		free(all_haloes);
+		free2D_double(&individual_displacements, particle_no);				
 	}
 	
-	free2D_double(&individual_displacements, particle_no);
-	//debiased
-	//haloModel_out(out_model_debiased, model_bin_info, volume/particle_no, pow(b_eff, -2.0), REAL_SPACE, Pk_current_extended);
-	
-		
-	return 0;
-	
-}
 
+	return 0;	
+}
 */
+
 
 /*
 int biased_displacements() {

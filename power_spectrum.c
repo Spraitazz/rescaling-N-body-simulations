@@ -100,8 +100,8 @@ int populateGridCIC(Particle_Catalogue *catalogue) {
 	WindowFunc_pow = 2.0;
 	return 0;
 }
-/*
-int populateGridCIC_massRange(double M_min, double M_max) {
+
+int populateGridCIC_massRange(Particle_Catalogue* cat, double M_min, double M_max) {
 	int grid_x, grid_y, grid_z;
 	double xc, yc, zc, dx, dy, dz, tx, ty, tz;
 	double cellSizes[3];
@@ -111,24 +111,24 @@ int populateGridCIC_massRange(double M_min, double M_max) {
 	
 	int particles_gridded = 0;			
 	
-	for (int i = 0; i < particle_no; i++) {
+	for (int i = 0; i < cat->particle_no; i++) {
 	
-		if (M_max*(1.000001) > particles[i][6] && particles[i][6] > M_min*(0.999999)) {
+		if (M_max*(1.000001) > cat->particles[i].mass && cat->particles[i].mass > M_min*(0.999999)) {
 			
 			particles_gridded += 1;
 			
-			grid_x = (int) floor((particles[i][0] / volume_limits[0]) * (double) cells[0]);
-			grid_y = (int) floor((particles[i][1] / volume_limits[1]) * (double) cells[1]);
-			grid_z = (int) floor((particles[i][2] / volume_limits[2]) * (double) cells[2]);			
+			grid_x = (int) floor((cat->particles[i].x / volume_limits[0]) * (double) cells[0]);
+			grid_y = (int) floor((cat->particles[i].y / volume_limits[1]) * (double) cells[1]);
+			grid_z = (int) floor((cat->particles[i].z / volume_limits[2]) * (double) cells[2]);			
 		
 			xc = cellSizes[0] * ((double) grid_x + 0.5);
 			yc = cellSizes[1] * ((double) grid_y + 0.5);
 			zc = cellSizes[2] * ((double) grid_z + 0.5);
 		
 			//must be from 0 to 1
-			dx = fabs(particles[i][0] - xc) / cellSizes[0];
-			dy = fabs(particles[i][1] - yc) / cellSizes[1];
-			dz = fabs(particles[i][2] - zc) / cellSizes[2];	
+			dx = fabs(cat->particles[i].x - xc) / cellSizes[0];
+			dy = fabs(cat->particles[i].y - yc) / cellSizes[1];
+			dz = fabs(cat->particles[i].z - zc) / cellSizes[2];	
 		
 			tx = 1.0 - dx;
 			ty = 1.0 - dy;
@@ -155,7 +155,8 @@ int populateGridCIC_massRange(double M_min, double M_max) {
 	WindowFunc_pow = 2.0;
 	return particles_gridded;
 }
-*/
+
+
 int gridIntoOverdensity() {
 	//average density (particles per grid box) simply particle_no / size of box
 	double N_avg = (double) particle_no / ((double) cells[0]*cells[1]*cells[2]);	
@@ -290,7 +291,7 @@ int pk_logbin(int overdensity_index, double k, double mu, BinInfo* Pk_binInfo) {
 	fk_squared *= volume;
 	
 	//SHOT NOISE, USE CAREFULLY
-	fk_squared -= volume/particle_no;	
+	//fk_squared -= volume/particle_no;	
 		
 	L2 = 0.5 * (3.0 * mu * mu - 1.0);
 	L4 = (1.0/8.0) * (35.0 * pow(mu, 4.0) - 30.0 * pow(mu, 2.0) + 3.0);	
