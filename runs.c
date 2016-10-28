@@ -55,8 +55,7 @@ int haloes_measure_Pk(Particle_Catalogue *catalogue, char outFile[], double fold
 		particles_saved = Jenkins_fold_volume(catalogue);		
 	}
 
-	populateGrid(catalogue, grid_func);		
-		//printf("herte \n");
+	populateGrid(catalogue, grid_func);	
 	
 	gridIntoOverdensity();	
 	overdensity_pk();

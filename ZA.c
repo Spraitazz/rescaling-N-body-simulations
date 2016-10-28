@@ -1,6 +1,12 @@
-int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, double** phases) {
+int ZA_displ_field_1D(int dim, Spline* Pk_current, Spline* Pk_target, bool fractional, double** phases) {
+
+	if (Pk_target == NULL) {
+		printf("target Pk spline must be supplied \n");
+		exit(0);
+	}
+	
 	double kx, ky, kz, k, k_sq, coef_real, coef_im;
-	double phase, amplitude, Pk, WindowFunc;
+	double phase, amplitude, Pk, WindowFunc, prefactor;
     int index, Index, negkIndex;
  	double fundmodes[3], nyquist[3], cellSizes[3];  
  	
@@ -29,12 +35,12 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
 				if (cc > cells_displ[2]/2) kz -= ((double) cells_displ[2]) * fundmodes[2];
 			
 				index = arr_ind_displ(aa, bb, cc);					
-				k_sq = kx*kx + ky*ky + kz*kz;				
-				k = sqrt(k_sq);									
+				k_sq = kx*kx + ky*ky + kz*kz;												
 				
-				if (k_sq > 0.0) {								
-							
-					Pk = splint_Pk(Pk_spline, k);
+				if (k_sq > 0.0) {
+				
+					k = sqrt(k_sq);								
+					Pk = splint_Pk(Pk_target, k);
 										
 					if (Pk*volume > 1e10 || Pk*volume < 1e-10) {
 						printf("\n Are you sure the pk spline is working? ZA. VPk: %le \n", Pk*volume);
@@ -47,7 +53,7 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
 					amplitude = sqrt(Pk) * exp(-k_sq*R_nl*R_nl/2.0);
 					//amplitude = sqrt(gsl_ran_exponential(gsl_ran_r, Pk)) * exp(-k_sq*R_nl*R_nl/2.0);
 				
-					
+					/*
 					if (grid_func == CIC) {
 						WindowFunc = 1.0;					
 						if(kx != 0.0) WindowFunc *= sin(pi*kx*0.5/nyquist[0])/(pi*kx*0.5/nyquist[0]);
@@ -57,7 +63,8 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
 					} else if (grid_func != NGP) {
 						printf("gridding can either be NGP or CIC in ZA_displacements() \n");
 						exit(0);
-					}					
+					}
+					*/					
 				
 					coef_real = amplitude * cos(phase);
 					coef_im = amplitude * sin(phase);	
@@ -78,20 +85,19 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
 							break;
 					}
 					
-					/*
-					//FRACTIONAL for rescaling
-					if (Pk_current != 0.0) {					
-						//df(k) and dv(k) here					
-						del_ratio = Pk_target/Pk_current;
-						prefactor = sqrt(del_ratio) - 1.0;					
-						displacements_fourier[index][0] *= prefactor;	
-						displacements_fourier[index][1] *= prefactor; <-------???? GOOD OR dont need im?NOT??		
-					} else {
-						printf("Pk current = 0.0\n");
-						displacements_fourier[index][0] = 0.0;
-						displacements_fourier[index][1] = 0.0;
-					}	
-					*/			
+					if (fractional) {
+						//FRACTIONAL for rescaling
+						if (Pk_current != NULL) {					
+							//df(k) and dv(k) here, Pk current MUST BE WITH THE RESCALED K VALUES
+							prefactor = sqrt(splint_Pk(Pk_target, k)/splint_Pk(Pk_current, k)) - 1.0;					
+							displacements_fourier[index][0] *= prefactor;	
+							//displacements_fourier[index][1] *= prefactor; <-------???? GOOD OR dont need im?NOT??		
+						} else {
+							printf("Pk current spline must be provided for rescaling\n");
+							exit(0);							
+						}
+					}
+								
 				}						
 			}
 		}		
@@ -145,7 +151,7 @@ int ZA_displ_field_1D(int dim, int grid_func, SplineInfo_Extended* Pk_spline, do
     return 0;
 }
 
-int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displacements, SplineInfo_Extended* Pk_spline, int grid_func) {		
+int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displacements, Spline *Pk_current, Spline *Pk_target, bool fractional) {		
 
 	if (!ZA_mem) printf("initialize ZA memory first \n");
 	int index, grid_x, grid_y, grid_z;
@@ -155,7 +161,8 @@ int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displa
 	for (int i = 0; i < cells_displ[0]*cells_displ[1]*cells_displ[2]; i++) {
 		phases[i] = randomDouble(0.0, 2.0*pi);
 	}
-		
+	
+	/*	
 	//CIC stuff
 	double xc, yc, zc, dx, dy, dz, tx, ty, tz, thisDisp;
 	double cellSizes[3];
@@ -163,13 +170,14 @@ int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displa
 	cellSizes[1] = volume_limits[1] / (double) cells_displ[1];
 	cellSizes[2] = volume_limits[2] / (double) cells_displ[2];
 	//end CIC stuff
-
+	*/
+	
 	//store displacements for each particle and each dimension in a [][], apply later, check max for sanity
 	double dispmax = 0.0;
 	double dispmax_im = 0.0;
 	for (int dimension = 0; dimension < 3; dimension++) {		
 		// get the fourier displacements, inverse FFT
-		ZA_displ_field_1D(dimension, grid_func, Pk_spline, &phases);		
+		ZA_displ_field_1D(dimension, Pk_current, Pk_target, fractional, &phases);		
 		fftw_execute(ZA_displacements_plan);
 		
 		//collect real displacements for each particle	
@@ -179,6 +187,7 @@ int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displa
 			grid_z = (int) floor((all_haloes->particles[i].z / volume_limits[2]) * (double) cells_displ[2]);
 			index = arr_ind_displ(grid_x, grid_y, grid_z);
 			
+			/*
 			if (grid_func == CIC) {			
 				xc = cellSizes[0] * ((double) grid_x + 0.5);
 				yc = cellSizes[1] * ((double) grid_y + 0.5);
@@ -208,8 +217,11 @@ int ZA_displacements(Particle_Catalogue *all_haloes, double*** individual_displa
 			} else {
 				printf("expected gridding function to be either NGP or CIC in ZA_displacements. Grid func: %d \n", grid_func);
 				exit(0);
-			}			
-			    
+			}	
+			*/		
+			   
+			(*individual_displacements)[i][dimension] = displacements[index][0];   
+			   
 			//min, max displacement.     										
 			if (displacements[index][0] > dispmax) dispmax = displacements[index][0];
 			if (displacements[index][1] > dispmax_im) dispmax_im = displacements[index][1];
@@ -243,14 +255,14 @@ double displacement_variance(double*** individual_displacements) {
 
 }
 
-int mass_bias_displacements(Particle_Catalogue *catalogue, double*** individual_displacements) {
+int mass_bias_displacements(Particle_Catalogue *catalogue, double*** individual_displacements, Parameters *params, Spline *variance) {
 	
 	printf("biasing displacement field \n");
 	double bias;	
 	
 	//overdensity of haloes = bias * overdensity of (dark) matter
 	for (int i = 0; i < catalogue->particle_no; i++) {
-		bias = b_m(catalogue->particles[i].mass, z_current_global, variance_spline_current);		
+		bias = b_m(catalogue->particles[i].mass, params, variance);		
 		(*individual_displacements)[i][0] *= bias;
 		(*individual_displacements)[i][1] *= bias;	
 		(*individual_displacements)[i][2] *= bias;
@@ -282,7 +294,7 @@ int apply_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_d
 		catalogue->particles[i].z += (*individual_displacements)[i][2];	
 			
 		if (redshift_space == REDSHIFT_SPACE) {		
-			catalogue->particles[i].z += fg * (*individual_displacements)[i][2];
+			catalogue->particles[i].z += pow(0.55, 0.545) * (*individual_displacements)[i][2];
 		} else if (redshift_space != REAL_SPACE) {
 			printf("expected either REAL_SPACE or REDSHIFT_SPACE for apply_ZA_displacements() \n");
 			exit(0);
@@ -294,6 +306,19 @@ int apply_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_d
 	return 0;
 }
 
+int ZA_velocities(Particle_Catalogue *cat, double*** individual_displacements, Parameters *params) {
+	double scale_factor = z_to_a(params->z) * params->H0 * pow(params->omega_m_0, params->gamma);
+	for (int i = 0; i < cat->particle_no; i++) {
+		cat->particles[i].vx += scale_factor * (*individual_displacements)[i][0];
+		cat->particles[i].vy += scale_factor * (*individual_displacements)[i][1];
+		cat->particles[i].vz += scale_factor * (*individual_displacements)[i][2];
+	}
+
+	return 0;
+}
+
+
+/*
 int remove_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_displacements, int redshift_space) {
 	
 	for (int i = 0; i < particle_no; i++) {
@@ -315,6 +340,7 @@ int remove_ZA_displacements(Particle_Catalogue *catalogue, double*** individual_
 	return 0;
 }
 
+*/
 
 
 int ZA_RSD() {
@@ -323,71 +349,69 @@ int ZA_RSD() {
 
 	//model spline for Pk
 	char Pk_in_model[100];
-	sprintf(Pk_in_model, "%s/data/linear_matter_pk_sig8_0.593_z_0.75.dat", home_directory);
-	SplineInfo* Pk_current = input_spline_file(Pk_in_model, Pk_model_format, NORMAL);
-
-	//binning
-	k_bins = 500;	
-	Dplus_bins = 500;
-	z_bins = 500;
-	k_min = Pk_current->xmin;
-	k_max = Pk_current->xmax;	
-	z_min = 0.0;
-	z_max = 3.5;
-	double R_min = 0.05;
-	double R_max = 6.5;
-	rescaling_k_bin_info = prep_bins(k_min, k_max, k_bins, LOG_BIN);
-	rescaling_z_bin_info = prep_bins(z_min, z_max, z_bins, NORMAL_BIN);
+	//sprintf(Pk_in_model, "%s/data/models/linear_matter_pk_sig8_0.593_z_0.75.dat", home_directory);
+	sprintf(Pk_in_model, "%s/data/models/matter_pk_om_m_055_z_40_sigma8_033.dat", home_directory);
+	Spline* Pk_current = input_spline_file(Pk_in_model, Pk_model_format, NORMAL, MODEL);
 	
-	//PARAMETERS
-	z_current_global = 3.5;	
-
-	//for Dplus things
-	z_to_t_workspace = gsl_integration_workspace_alloc(z_to_t_workspace_size);
-	prep_redshift_spline(rescaling_z_bin_info);
-
-	//redshift 0.75 -> z_current_global
-	Pk_current = prep_Pk_constz(GR, 0.75, z_current_global, Pk_current, rescaling_k_bin_info);	
-	Pk_current_extended = extend_spline_model(Pk_current);
 	
-	rescaling_R_bin_info = prep_bins(R_min, R_max, 500, LOG_BIN);
-	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
-	variance_spline_current = prep_variances(rescaling_R_bin_info, Pk_current_extended);
-	variance_spline_current_reversed = reverse_spline(variance_spline_current);
-	
+	Parameters *cur_params = malloc(sizeof(*cur_params));		
+	cur_params->H0 = 100.0*0.678;
+	cur_params->omega_m_0 = 0.55;
+	cur_params->omega_v_0 = 0.45;
+	cur_params->omega_r_0 = 0.0;
+	cur_params->omega = 1.0;	
+	cur_params->gamma = 0.545;
+	cur_params->z = 4.0;	
 	
 	/*
-	R_mstar = splint_generic(variance_spline_current_reversed, pow(delta_c, 2.0));	
-	//m* is the nonlinear mass scale at z = 0 defined such that sigma^2 (m*) = delta_c ^ 2
-	//inverse spline returns R when sigma^2 has this value, then get m*
-	Mstar = R_to_m(R_mstar, z_current_global);
-	printf("mstar: %lf \n", Mstar);
-	char cdmOut[100];
-	sprintf(cdmOut, "%s/data/cdm.dat", home_directory);
-	print_cdm(cdmOut);
-	exit(0);
-	*/
+	Parameters *cur_params = malloc(sizeof(*cur_params));		
+	cur_params->H0 = 100.0*0.678;
+	cur_params->omega_m_0 = 0.24;
+	cur_params->omega_v_0 = 0.76;
+	cur_params->omega_r_0 = 0.0;
+	cur_params->omega = 1.0;	
+	cur_params->gamma = 0.545;
+	cur_params->z = 3.5;	
+*/
+
+	//binning
+	int k_bins = 500;	
+	Dplus_bins = 500;
+	int z_bins = 500;
+	double k_min = Pk_current->splineInfo->xmin;
+	double k_max = Pk_current->splineInfo->xmax;	
+	double z_min = 0.0;
+	double z_max = 4.0;
+	double R_min = 0.05;
+	double R_max = 6.5;
+	BinInfo *rescaling_k_bin_info = prep_bins(k_min, k_max, k_bins, LOG_BIN);
+	BinInfo *rescaling_z_bin_info = prep_bins(z_min, z_max, z_bins, NORMAL_BIN);
+
+	//redshift 0.75 -> 3
+	//Pk_current = prep_Pk_constz(GR, 0.75, 3.5, Pk_current, rescaling_k_bin_info, rescaling_z_bin_info, cur_params);	
 	
+	BinInfo *rescaling_R_bin_info = prep_bins(R_min, R_max, 500, LOG_BIN);
+
+	Spline *variance_spline_current = prep_variances(rescaling_R_bin_info, Pk_current);
+	Spline *variance_spline_current_reversed = reverse_spline(variance_spline_current);
 	
 	R_nl = splint_generic(variance_spline_current_reversed, 1.0);	
 	printf("Rnl is: %le \n", R_nl);
 	
-	sigma_exp_smoothed = sqrt(expected_variance_smoothed(R_nl, Pk_current_extended));
-	printf("expected standard deviation of smoothed displacement: %lf \n", sigma_exp_smoothed);				
+	//sigma_exp_smoothed = sqrt(expected_variance_smoothed(R_nl, Pk_current_extended));
+	//printf("expected standard deviation of smoothed displacement: %lf \n", sigma_exp_smoothed);				
 	
-	char outFile_realspace[100], outFile_redshift[100], out_model_realspace[100], out_model_redshift[100];
-	sprintf(out_model_realspace, "%s/data/ZA/model_real_pk.dat", home_directory);
-	sprintf(out_model_redshift, "%s/data/ZA/model_redshift_f4_pk.dat", home_directory);
+	char outFile_redshift[100], out_model_redshift[100];
+	sprintf(out_model_redshift, "%s/data/rescaling/model_to_model/Pk_current_model.dat", home_directory);
 		
 	//k bins for models
-	BinInfo* model_bin_info = prep_bins(0.02, 1.0, 500, LOG_BIN);
+	BinInfo* model_bin_info = prep_bins(0.02, 0.4, 200, LOG_BIN);
 	
 	particle_no = 128*128*128;	
 
-	//double SN = volume/particle_no;
-	double SN = 0.0;
-	haloModel_out(out_model_redshift, model_bin_info, SN, 1.0, REDSHIFT_SPACE, Pk_current_extended);	
-	//haloModel_out(out_model_realspace, model_bin_info, SN, 1.0, REAL_SPACE, Pk_current_extended);			
+	haloModel_out(out_model_redshift, model_bin_info, 0.0, 1.0, REDSHIFT_SPACE, Pk_current, cur_params);	
+	
+	Particle_Catalogue *all_haloes;
 	
 	double** individual_displacements;	
 	
@@ -395,41 +419,28 @@ int ZA_RSD() {
 	
 		printf("\n RUN %d \n", i);	
 		
-		//sprintf(outFile_realspace, "%s/data/ZA/multipoles/ZA_real_f4_pk_%d.dat", home_directory, i);	
-		sprintf(outFile_redshift, "%s/data/ZA/multipoles/ZA_redshift_f4_pk_%d.dat", home_directory, i);		
+		sprintf(outFile_redshift, "%s/data/rescaling/model_to_model/test/Pk_current_%d.dat", home_directory, i);		
 
-		all_haloes = populateParticles_lattice(particle_no);		
+		all_haloes = populateParticles_crystalLattice(particle_no);		
 		
 		calloc2D_double(&individual_displacements, particle_no, 3);
 		ZA_allocateMemory();
-		ZA_displacements(all_haloes, &individual_displacements, Pk_current_extended, NGP);		
-		ZA_freeMemory();
-		
-		//mass_debias_displacements(&individual_displacements);		
-		printf("Applying ZA displacement field \n");
-		//apply_ZA_displacements(all_haloes, &individual_displacements, REAL_SPACE);
+		ZA_displacements(all_haloes, &individual_displacements, NULL, Pk_current, false);		
+		ZA_freeMemory();		
+	
+		apply_ZA_displacements(all_haloes, &individual_displacements, REAL_SPACE);
+		ZA_velocities(all_haloes, &individual_displacements, cur_params);
+		toRedshift(all_haloes, cur_params);
 		
 		overdensity_allocateMemory();
-		printf("Measuring Pk \n");
-		//haloes_measure_Pk(all_haloes, outFile_realspace, 1.0, CIC);	
-		//remove_ZA_displacements(all_haloes, &individual_displacements, REAL_SPACE);	
-		
-		apply_ZA_displacements(all_haloes, &individual_displacements, REDSHIFT_SPACE);
 		haloes_measure_Pk(all_haloes, outFile_redshift, 1.0, CIC);		
-
-		free2D_double(&individual_displacements, particle_no);	
-		
 		overdensity_freeMemory();
+		
+		free2D_double(&individual_displacements, particle_no);	
 		free(all_haloes->particles);
-		free(all_haloes);
-		
+		free(all_haloes);		
 	}
-	
-	
-	//debiased
-	//haloModel_out(out_model_debiased, model_bin_info, volume/particle_no, pow(b_eff, -2.0), REAL_SPACE, Pk_current_extended);
-	
-		
+
 	
 	return 0;
 }

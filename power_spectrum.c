@@ -1,12 +1,11 @@
-/*
-int toRedshift(double a) {		
-	for (int i = 0; i < particle_no; i++) {		
-		particles[i][2] += particles[i][5] / (a*H0);	//z-axis line of sight		
-		PBC(&particles[i][0], &particles[i][1], &particles[i][2]);
+int toRedshift(Particle_Catalogue *cat, Parameters *params) {		
+	for (int i = 0; i < cat->particle_no; i++) {		
+		cat->particles[i].z += cat->particles[i].vz / (z_to_a(params->z)*(params->H0));	//z-axis line of sight		
+		PBC(&cat->particles[i].x, &cat->particles[i].y, &cat->particles[i].z);
 	}	
 	return 0;
 }
-*/
+
 
 int populateGrid(Particle_Catalogue *catalogue, int grid_func) {
 	if (grid_func == CIC) {
@@ -61,11 +60,9 @@ int populateGridCIC(Particle_Catalogue *catalogue) {
 	cellSizes[2] = volume_limits[2] / (double) cells[2];	
 	
 	for (int i = 0; i < catalogue->particle_no; i++) {
-		//printf("%d in cic b4, x: %lf, y: %lf, z: %lf \n", i, catalogue->particles[i].x);
 		grid_x = (int) floor((catalogue->particles[i].x / volume_limits[0]) * (double) cells[0]);
 		grid_y = (int) floor((catalogue->particles[i].y / volume_limits[1]) * (double) cells[1]);
-		grid_z = (int) floor((catalogue->particles[i].z / volume_limits[2]) * (double) cells[2]);			
-		//printf("%d in cic \n", i);
+		grid_z = (int) floor((catalogue->particles[i].z / volume_limits[2]) * (double) cells[2]);		
 		
 		xc = cellSizes[0] * ((double) grid_x + 0.5);
 		yc = cellSizes[1] * ((double) grid_y + 0.5);
@@ -85,8 +82,6 @@ int populateGridCIC(Particle_Catalogue *catalogue) {
 		xplus = (grid_x + 1) % cells[0];
 		yplus = (grid_y + 1) % cells[1];
 		zplus = (grid_z + 1) % cells[2];
-		
-		//printf("just just %d, grid_x %d, grid_y %d , grid_z %d, xplus %d, yplus %d, zplus %d \n", i, grid_x, grid_y, grid_z, xplus, yplus, zplus);		
 
 		grid[arr_ind(grid_x, grid_y, grid_z)] += tx*ty*tz;	
 		grid[arr_ind(xplus, grid_y, grid_z)] += dx*ty*tz;

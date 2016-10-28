@@ -96,31 +96,34 @@ double a_to_z(double a) {
 	return 1.0/a - 1.0;
 }
 
-double H_a(double a) {
-	return H0*sqrt(omega_v_0 + omega_m_0*pow(a,-3.0) + omega_r_0*pow(a,-4.0) + (1.0 - omega)*pow(a,-2.0));	
+double H_a(double a, Parameters *params) {
+	return params->H0*sqrt(params->omega_v_0 + params->omega_m_0*pow(a,-3.0) + params->omega_r_0*pow(a,-4.0) + (1.0 - params->omega)*pow(a,-2.0));	
 }
 
-double rho_bar_z(double z) {
-	return rho_cosm*pow(z_to_a(z), -3.0)*omega_m_0;
+double rho_bar_z(Parameters *params) {
+	//rintf("rho cosm: %lf, z: %lf, a: %lf, omega m: %lf \n", rho_cosm, params->z, z_to_a(params->z), params->omega_m_0);
+	return rho_cosm * pow(z_to_a(params->z), -3.0) * params->omega_m_0;
 }
 
-double m_to_R(double mass, double z) {
-	return pow(3.0*mass/(4.0*M_PI*rho_bar_z(z)), 1.0/3.0);
+double m_to_R(double mass, Parameters *params) {
+	return pow(3.0*mass/(4.0*pi*rho_bar_z(params)), 1.0/3.0);
 }
 
-double R_to_m(double R, double z) {
-	return (4.0/3.0)*pi*pow(R,3.0)*rho_bar_z(z);
+double R_to_m(double R, Parameters *params) {
+	//printf("R: %lf, rho bar: %lf, om m : %lf \n", R, rho_bar_z(params), params->omega_m_0);
+	return (4.0/3.0)*pi*pow(R,3.0)*rho_bar_z(params);
 }
 
-double omega_m_z(double z) {
+double omega_m_z(double z, Parameters *params) {
 	double a_cur = z_to_a(z);
-	double H = H_a(a_cur);
-	return omega_m_0*pow(a_cur, -3.0)*pow(H0/H, 2.0);
+	double H = H_a(a_cur, params);
+	return params->omega_m_0*pow(a_cur, -3.0)*pow(params->H0/H, 2.0);
 }
 
 //Bullock et al. 2006?? or 2004?
-double del_nl_z(double z) {
-	return (18.0*pi*pi + 82.0*(omega_m_z(z) - 1.0) - 39.0*pow(omega_m_z(z) - 1.0, 2.0)) / omega_m_z(z); 
+double del_nl_z(double z, Parameters *params) {
+	double om_m = omega_m_z(z, params);
+	return (18.0*pi*pi + 82.0*(om_m - 1.0) - 39.0*pow(om_m - 1.0, 2.0)) / om_m; 
 }
 
 //a single struct to pass around binning stuff
@@ -163,135 +166,8 @@ double bin_to_x(BinInfo *bin_info, int index) {
 	return value;
 }
 
-//generic function to create struct with spline coefficients, x, y values, xmin, xmax, lines
-SplineInfo* input_spline_values(int lines, double* xs, double* ys) {
-	double xmin, xmax;	
-	bool x_mono, x_inc;
-	double* x_vals = malloc(lines * sizeof(*xs));
-	double* y_vals = malloc(lines * sizeof(*ys));
-	memcpy(x_vals, xs, lines * sizeof(*xs));
-	memcpy(y_vals, ys, lines * sizeof(*ys));	
-	double* coeffs = malloc((size_t)lines * sizeof(*coeffs));	
-	int dupcount = 0;
-	x_mono = true;	
-	x_inc = false;	
-	
-	//monotoneity check for x
-	for (int i = 0; i < lines-1; i++) {
-		if (x_vals[i+1] > x_vals[i]) {
-			x_inc = true;
-		} else if (x_vals[i+1] < x_vals[i]) {
-			//x decreased going forward, check monotonous
-			if (x_inc == true) {
-				x_mono = false;
-				printf("the x-values of the function given are not monotonous\n");
-				printf("%le followed by %le \n", x_vals[i], x_vals[i+1]);
-				exit(0);
-			}
-		} else {
-			//x stayed the same -> nonsense??
-			if (dupcount < 2) {
-				printf("duplicate x-values in function given, check index %d\n", i);
-				dupcount += 1;	
-			}			
-		}
-	}
-		
-	if (x_inc) {
-		xmin = x_vals[0];
-		xmax = x_vals[lines-1];
-	} else {
-		xmin = x_vals[lines-1];
-		xmax = x_vals[0];
-		//also reverse, spline/splint wants x in increasing order
-		double temp, temp2;		
-		for (int i = 0; i < lines/2; i++) {
-			temp = x_vals[i];
-			temp2 = y_vals[i];
-			x_vals[i] = x_vals[lines - i - 1];
-			y_vals[i] = y_vals[lines - i - 1];
-			x_vals[lines - i - 1] = temp;
-			y_vals[lines - i - 1] = temp2;
-		}	
-	}	
-	
-	//spline to get the coefficients
-	spline(x_vals, y_vals, lines, 1.0e31, 1.0e31, coeffs);	
-	//store spline information, together with coefficients, and return it	
-	SplineInfo* toReturn = malloc(sizeof(*toReturn));
-	toReturn->x_vals = x_vals;
-	toReturn->y_vals = y_vals;
-	toReturn->coeffs = coeffs;
-	toReturn->lines = lines;
-	toReturn->xmin = xmin;
-	toReturn->xmax = xmax;
-	return toReturn;		
-}
 
-//inputs generic spline, given a file and a format reverse means y in terms of x
-//format can only contain 2 counts of %lf.
-SplineInfo* input_spline_file(char inFile[], const char format[], int reverse) {
-	
-	FILE *f = fopen(inFile, "r");
-	if (f == NULL) {
-		printf("wrong file in spline input: %s \n", inFile);
-		exit(0);
-	}
-	
-	double xmin, xmax;
-	int lines = countLines(f);
-	SplineInfo* toReturn = malloc(sizeof(*toReturn));	
-	double* x_vals = malloc((size_t)lines * sizeof(*x_vals));
-	double* y_vals = malloc((size_t)lines * sizeof(*y_vals));
 
-	for (int i = 0; i < lines; i++) {
-		ph = fscanf(f, format, &x_vals[i], &y_vals[i]);
-	}
-	
-	if (reverse == REVERSED) {
-		toReturn = input_spline_values(lines, y_vals, x_vals);
-	} else if (reverse == NORMAL) {
-		toReturn = input_spline_values(lines, x_vals, y_vals);
-	} else {
-		printf("expected either NORMAL or REVERSED for input_spline_file() \n");
-		exit(0);
-	}
-	
-	free(x_vals);
-	free(y_vals);		
-	return toReturn;		
-}
-
-//sets the value at the pointer "reversed" to the reverse x = f(y) function of the spline "current"
-SplineInfo* reverse_spline(SplineInfo *current) {
-	SplineInfo *reversed = input_spline_values(current->lines, current->y_vals, current->x_vals);
-	return reversed;
-}
-
-//prepares a spline from a function of the type double y(double x){}
-SplineInfo* prep_spline_generic(BinInfo *binInfo, int reverse, double (*func)(double)) {
-	double x_cur, y_cur;
-	SplineInfo* toReturn;
-	double* xs = malloc((size_t)binInfo->bins * sizeof(*xs));
-	double* ys = malloc((size_t)binInfo->bins * sizeof(*ys));	
-	
-	for (int i = 0; i < binInfo->bins; i++) {
-		x_cur = bin_to_x(binInfo, i);
-		y_cur = (*func)(x_cur);
-		xs[i] = x_cur;
-		ys[i] = y_cur;
-	}	
-	
-	if (reverse == REVERSED) {
-		toReturn = input_spline_values(binInfo->bins, ys, xs);
-	} else if (reverse == NORMAL) {
-		toReturn = input_spline_values(binInfo->bins, xs, ys);
-	} else {
-		printf("prep_spline_generic expected REVERSED or NORMAL \n");
-		exit(0);
-	}	
-	return toReturn;
-}
 
 int print_anything(char outFile[], double xmin, double xmax, int bins, double (*y_x)(double)) {
 	double x_cur, y_cur, dx;
@@ -312,8 +188,9 @@ void prep_out_path(char **holder, char folder[], char subfolder[], char filename
 
 }
 
-double splint_generic(SplineInfo *info, double x) {
+double splint_generic(Spline *spline, double x) {
 	double y, margin;
+	SplineInfo *info = spline->splineInfo;
 	margin = (info->xmax - info->xmin)*1e-6;
 	//allowing small deviation to counter bugs with the result ending up 0 inside the range
 	if (info->xmin - margin < x && x <= info->xmin) {
@@ -328,22 +205,22 @@ double splint_generic(SplineInfo *info, double x) {
 	return y;
 }
 
-int print_delsq(SplineInfo_Extended *pk_spline, char filename[], double kmin, double kmax, int bins, bool scaled) {
-	FILE *delsq_out_file = fopen(filename, "w");	
-	double delsq, k_cur, logkmin, logdk, logk;
-	logkmin = log10(kmin);
-	logdk = (log10(kmax) - logkmin) / (double)(bins - 1);
-	for (int i = 0; i < bins; i++) {
-		logk = logkmin + (double)i * logdk;
-		k_cur = pow(10.0, logk);		
+int print_delsq(Spline *Pk_spline, char filename[], BinInfo* binInfo, bool scaled) {
+	
+	FILE *f = fopen(filename, "w");	
+	double delsq, k_cur;
+		
+	for (int i = 0; i < binInfo->bins; i++) {
+		k_cur = bin_to_x(binInfo, i);		
 		if (scaled) {
-			delsq = delsq_lin(pk_spline, k_cur*s);
+			delsq = delsq_lin(Pk_spline, k_cur*s);
 		} else {
-			delsq = delsq_lin(pk_spline, k_cur);
+			delsq = delsq_lin(Pk_spline, k_cur);
 		}
-		fprintf(delsq_out_file, "%lf \t %le \n", k_cur, delsq);
+		fprintf(f, "%lf \t %le \n", k_cur, delsq);
 	}
-	fclose(delsq_out_file);
+	
+	fclose(f);
 	return 0;
 }
 

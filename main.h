@@ -78,32 +78,40 @@ double rho_cosm, omega_m_0, omega_m_primed, rho_bar, H0;
 double omega_v_0, omega_r_0, omega, H, fg, fg_primed, G, h;
 double log_Mmin, sigma_logm, log_M0;
 
+
+
+
+//int k_bins, z_bins, R_bins, Dplus_bins, current_gravity, target_gravity;
+int Dplus_bins;
+
+double weighted_shotnoise_sats;
+
+
+
 //rescaling
 double lambda_F4, lambda_F5, lambda_F6, lambda_GR;
 double fR0_F4, fR0_F5, fR0_F6, fR0_GR;
 double R1_primed, R2_primed, Mmin, Mmax;
-
-double sigma_exp_smoothed;
-
+double z_guess;
 double dsq_minimized_value, s, z_rescaled;
 bool vary_z_current;
-double k_min, k_max, z_min, z_max, dk, dz;
-int k_bins, z_bins, R_bins, Dplus_bins, current_gravity, target_gravity;
+//double k_min, k_max, z_min, z_max;
 
-double weighted_shotnoise_sats;
-
-bool ZA_mem = false;
 
 //for ZA
-double z_current_global, R_nl;
+double R_nl;
+double sigma_exp_smoothed;
+bool ZA_mem = false;
+
 
 int prep_oneHalo(void);
 int oneHalo(void);
 
-double z_guess;
 
 
 
+
+/*
 SplineInfo *variance_spline_current, *variance_spline_current_reversed;
 SplineInfo *variance_spline_target, *variance_spline_const;
 SplineInfo *nfw_spline_reverse;
@@ -112,11 +120,12 @@ SplineInfo *redshift_spline_reversed;
 SplineInfo *Pk_current, *Pk_target;
 SplineInfo **Pk_splines_zBins;
 SplineInfo **variance_splines_zBins;
-SplineInfo_Extended *Pk_target_extended, *Pk_current_extended;
-SplineInfo_Extended **Pk_splines_zBins_extended; 
+*/
+//SplineInfo_Extended *Pk_target_extended, *Pk_current_extended;
+//SplineInfo_Extended **Pk_splines_zBins_extended; 
 
-BinInfo *rescaling_k_bin_info, *rescaling_z_bin_info, *rescaling_R_bin_info, *HOD_mass_bin_info;
-BinInfo *Pk_calc_bins;
+//BinInfo *rescaling_k_bin_info, *rescaling_z_bin_info, *rescaling_R_bin_info, *HOD_mass_bin_info;
+//BinInfo *Pk_calc_bins;
 
 //functions.c
 double randomDouble(double min, double max);
@@ -125,12 +134,12 @@ int countLines(FILE *f);
 int arr_ind(int x, int y, int z);
 int arr_ind_displ(int x, int y, int z);
 int mass_min_max(Particle_Catalogue *catalogue);
-double m_to_R(double m, double z);
-double R_to_m(double R, double z);
-SplineInfo* input_spline_values(int lines, double* x_vals, double* y_vals);
-SplineInfo* input_spline_file(char inFile[], const char format[], int reverse);
-SplineInfo* prep_spline_generic(BinInfo *binInfo, int reverse, double (*func)(double));
-double splint_generic(SplineInfo *info, double x);
+double m_to_R(double mass, Parameters *params);
+double R_to_m(double R, Parameters *params);
+Spline* input_spline_values(int lines, double* x_vals, double* y_vals, int model);
+Spline* input_spline_file(char inFile[], const char format[], int reverse, int model);
+Spline* prep_spline_generic(BinInfo *binInfo, int reverse, double (*func)(double));
+double splint_generic(Spline *spline, double x);
 
 
 //memory.c
@@ -153,7 +162,7 @@ void free2D_double(double*** arr, int dim2);
 
 //power_spectrum.c
 int populateParticles(Particle** particles, int particle_no);
-int toRedshift(double a);
+int toRedshift(Particle_Catalogue *cat, Parameters *params);
 int initGrid(void);
 int populateGrid(Particle_Catalogue *catalogue, int grid_func);
 int populateGridNGP(Particle_Catalogue *catalogue);
@@ -172,14 +181,14 @@ void splint(double xa[], double ya[], double y2a[], int n, double x, double *y);
 int powerlaw_regression(int N, double rmin, double rmax, double sign, double ri[], double Di[], double* norm, double* index);
 
 //halo_model.c
-int scale_velocities(double s, double H, double H_primed, double a_primed);
+int scale_velocities(double s, Particle_Catalogue *cat, Parameters *cur_params, Parameters *targ_params);
 int scale_masses(double s, double omega_m_primed);
 int nfw_cumsums_catalogue(int bins, const char root_dir[]);
-double halo_model_Pk(double k, double shot_noise, double twohalo_prefactor, int redshift_space, int order, SplineInfo_Extended *Pk_spline);
-SplineInfo* prep_nfw_cumsums(double halo_mass, int bins);
-int haloModel_out(char out[], BinInfo *halo_model_k_bins, double shot_noise, double twohalo_prefactor, int redshift_space, SplineInfo_Extended *Pk_spline);
+double halo_model_Pk(double k, double shot_noise, double twohalo_prefactor, int redshift_space, int order, Spline *Pk_spline, double fg);
+Spline* prep_nfw_cumsums(double halo_mass, int bins);
+int haloModel_out(char out[], BinInfo *k_bins, double shot_noise, double twohalo_prefactor, int redshift_space, Spline *Pk_spline, Parameters *par);
 double cumsum_nfw(double r);
-int set_halo_params(double halo_mass);
+int set_halo_params(double halo_mass, Spline *variance_spline, Parameters *params);
 int set_ZA_params(void);
 double ukm_nfw_profile(double k);
 double I_integral_HOD(double t, void *params);
@@ -196,10 +205,10 @@ int prep_bin_info(void);
 int HOD_main(void);
 
 //rescaling.c
-SplineInfo_Extended* extend_spline_model(SplineInfo *spline);
-SplineInfo_Extended* extend_spline(SplineInfo *spline);
+Spline* extend_spline_model(SplineInfo *spline);
+Spline* extend_spline(SplineInfo *spline, int model);
 //double splint_Pk_model(SplineInfo_Extended *pk_model, double k);
-double splint_Pk(SplineInfo_Extended *pk_spline, double k);
+double splint_Pk(Spline *Pk_spline, double k);
 int halo_mass_func(void);
 int rescale(void);
 int rescale_testRun(void);
@@ -209,46 +218,46 @@ int rescale_model(void);
 //rescaling_functions.c
 double delta_sq_int_func(double R, void *params);
 double OLV(double k, void *params);
-double integrate_OLV(double R, SplineInfo_Extended *pk_spline);
+double integrate_OLV(double R, Spline *pk_spline);
 double delta_sq_rms(const gsl_vector *inputs, void *params);
-int dsq_multimin(bool vary_z_cur, double z_init, SplineInfo* variance_const, SplineInfo** variances_varz);
+int dsq_multimin(bool vary_z_cur, double z_init, Spline* variance_const, Spline** variances_varz, BinInfo *z_binInfo);
 int dsq_multimin_test(void);
-SplineInfo* prep_variances_test(BinInfo *R_bin_info, SplineInfo_Extended *pk_spline, double s_test);
-double delsq_lin(SplineInfo_Extended *pk_spline, double k);
-double expected_variance_smoothed(double R_nl_this, SplineInfo_Extended *pk_spline);
+Spline* prep_variances_test(BinInfo *R_bin_info, Spline *Pk_spline, double s_test);
+double delsq_lin(Spline *Pk_spline, double k);
+double expected_variance_smoothed(double R_nl_this, Spline *Pk_spline);
 double OLV_smoothed(double k, void *params);
 
-SplineInfo* prep_Pk_constz(int gravity, double z_from, double z_to, SplineInfo *Pk_spline_in, BinInfo *k_bin_info);
-SplineInfo* Dplus_spline(int gravity, double k);
-SplineInfo* prep_variances(BinInfo *R_bin_info, SplineInfo_Extended *pk_spline);
+Spline* prep_Pk_constz(int gravity, double z_from, double z_to, Spline *Pk_spline_in, BinInfo *k_bin_info, BinInfo *z_binInfo, Parameters *params);
+Spline* Dplus_spline(int gravity, double k, BinInfo *z_binInfo, Parameters *params);
+Spline* prep_variances(BinInfo *R_bin_info, Spline *Pk_spline);
 int generate_sigma_plots(void);
 
 
 //Dplus.c
-double z_to_t(double z);
+double z_to_t(double z, Parameters *params);
 double z_to_a(double z);
 double a_to_z(double a);
-double a_to_t(double a);
-double H_a(double a);
+double a_to_t(double a, Parameters *params);
+double H_a(double a, Parameters *params);
 double z_to_t_int(double z, void * params);
-int prep_redshift_spline(BinInfo *z_bin_info);
-double t_to_z(double t);
+Spline* prep_redshift_spline(BinInfo *z_binInfo, Parameters *params);
+double t_to_z(double t, Spline *redshift_reverse);
 double H_z(double z);
 int growth_function(double t, const double y[], double f[], void *params);
 int jacobian(double t, const double y[], double *dfdy, double dfdt[], void *params);
-int Dplus_calc(int gravity, double k, double** zs, double** Dpluses);
+int Dplus_calc(int gravity, double k, double** zs, double** Dpluses, BinInfo *z_binInfo, Parameters *params);
 
 //bias
-double m_to_v(double mass, double z, SplineInfo* variance_spline);
+double m_to_v(double mass, Parameters *params, Spline* variance_spline);
 double f_v(double v);
 double ln_fv_deriv(double v);
-double v_to_m(double v, double z);
+double v_to_m(double v, Bias_Params *bias_params);
 double b_v(double v);
-double b_m(double m, double z, SplineInfo* variance_spline);
+double b_m(double m, Parameters *params, Spline* variance_spline);
 double bf_over_m(double v, void * params);
 double f_over_m(double v, void * params);
 int bias_plot(double z);
-double calc_b_eff(double z, SplineInfo* variance_spline, double Mmin, double Mmax);
+double calc_b_eff(Parameters *params, Spline* variance_spline, double Mmin, double Mmax);
 
 //fold.c
 Particle* Jenkins_fold_volume(Particle_Catalogue *catalogue);
@@ -280,7 +289,7 @@ gsl_integration_workspace* z_to_t_workspace;
 size_t z_to_t_workspace_size = 1000;
 gsl_integration_workspace* dsq_workspace; 
 gsl_integration_workspace* OLV_workspace;
-size_t OLV_workspace_size = 1000;
+size_t OLV_workspace_size = 2000;
 gsl_integration_workspace* onehalo_workspace;
 gsl_integration_cquad_workspace* dsq_workspace_cquad;
 

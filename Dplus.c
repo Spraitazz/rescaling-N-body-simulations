@@ -1,43 +1,56 @@
 double z_to_t_int(double z, void * params) {
-	params = params;	
-	return 1.0/((1.0 + z)*H_a(z_to_a(z)));
+	Parameters *parameters = (Parameters*) params;	
+	return 1.0/((1.0 + z)*H_a(z_to_a(z), parameters));
 }
 
-double z_to_t(double z) {
+double z_to_t(double z, Parameters *params) {
 	double error, result;
 	gsl_function F;	
 	F.function = &z_to_t_int;
-	F.params = 0;  	
+	F.params = params;  	
 	gsl_integration_qagiu(&F, z, 0, 1e-7, z_to_t_workspace_size, z_to_t_workspace, &result, &error);	
 	return result;	
 }
 
-double t_to_z(double t) {
-	return splint_generic(redshift_spline_reversed, t);
+double t_to_z(double t, Spline *redshift_reverse) {
+	return splint_generic(redshift_reverse, t);
 }
 
-double a_to_t(double a) {
-	return z_to_t(a_to_z(a));
+double a_to_t(double a, Parameters *params) {
+	return z_to_t(a_to_z(a), params);
 }
 
-int prep_redshift_spline(BinInfo *z_bin_info) {
-	redshift_spline_reversed = prep_spline_generic(z_bin_info, REVERSED, &z_to_t);
-	double minval = splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmin);
-	double maxval = splint_generic(redshift_spline_reversed, redshift_spline_reversed->xmax);
+Spline* prep_redshift_spline(BinInfo *z_binInfo, Parameters *params) {
+
+	double z_cur, t_cur;
+	Spline* toReturn;
+	double* zs = malloc((size_t)z_binInfo->bins * sizeof(*zs));
+	double* ts = malloc((size_t)z_binInfo->bins * sizeof(*ts));	
 	
-	if (!equalsDouble(z_bin_info->xmax, minval)) {
+	for (int i = 0; i < z_binInfo->bins; i++) {
+		z_cur = bin_to_x(z_binInfo, i);
+		t_cur = z_to_t(z_cur, params);
+		zs[i] = z_cur;
+		ts[i] = t_cur;
+	}		
+
+	toReturn = input_spline_values(z_binInfo->bins, ts, zs, MEASURED);
+	double minval = splint_generic(toReturn, toReturn->splineInfo->xmin);
+	double maxval = splint_generic(toReturn, toReturn->splineInfo->xmax);
+	
+	if (!equalsDouble(z_binInfo->xmax, minval)) {
 		printf("redshift spline didn't go well (Dplus.c prep_redshift_spline()) \n");
-		printf("%lf \t %lf \n", minval, z_bin_info->xmax);
+		printf("%lf \t %lf \n", minval, z_binInfo->xmax);
 		exit(0);
 	}
 	
-	if (!equalsDouble(z_bin_info->xmin, maxval)) {
+	if (!equalsDouble(z_binInfo->xmin, maxval)) {
 		printf("redshift spline didn't go well (Dplus.c prep_redshift_spline()) \n");
-		printf("%lf \t %lf \n", maxval, z_bin_info->xmin);
+		printf("%lf \t %lf \n", maxval, z_binInfo->xmin);
 		exit(0);
 	}
 	
-	return 0;
+	return toReturn;
 }
 
 /*
@@ -53,15 +66,18 @@ double t_to_a_analytic(double t) {
 int growth_function(double t, const double Dplus_vals[], double dDplus_dt[], void *params) {
 	double lambda_zero, lambda, k, omega_m_z_cur, bracket_factor, a_cur, z_cur, t0;
 	double R_bar, R0_bar;
-	double* parameters = (double*) params;
-	lambda_zero = parameters[0];
-	k = parameters[1];
-	t0 = parameters[2];
+	
+	Minim_Params *parameters = (Minim_Params*) params;
+	lambda_zero = parameters->lambda0;
+	k = parameters->k;
+	t0 = parameters->t0;
+	Spline* redshift_reverse = parameters->redshift_reverse;
+	Parameters *cosmo_params = parameters->cosmo_params;
 	
 	//generic
-	z_cur = t_to_z(t);	
+	z_cur = t_to_z(t, redshift_reverse);	
 	a_cur = z_to_a(z_cur);
-	
+		
 	//omega_m + omega_v
 	//a_cur = t_to_a_analytic(t);
 	//z_cur = a_to_z(a_cur);
@@ -69,12 +85,13 @@ int growth_function(double t, const double Dplus_vals[], double dDplus_dt[], voi
 	//EdS
 	//a_cur = pow(t/t0, 2.0/3.0);
 	
-	H = H_a(a_cur);
-	omega_m_z_cur = omega_m_z(z_cur);	
+	H = H_a(a_cur, cosmo_params);
+	omega_m_z_cur = omega_m_z(z_cur, cosmo_params);	
+	
 	
 	//(7), (17)
-	R0_bar = 3.0*H0*H0*(omega_m_0 + 4.0*omega_v_0); 
-	R_bar = 3.0*H0*H0*(omega_m_0*pow(a_cur, -3.0) + 4.0*omega_v_0);
+	R0_bar = 3.0*pow(cosmo_params->H0, 2.0)*(cosmo_params->omega_m_0 + 4.0*cosmo_params->omega_v_0); 
+	R_bar = 3.0*pow(cosmo_params->H0, 2.0)*(cosmo_params->omega_m_0*pow(a_cur, -3.0) + 4.0*cosmo_params->omega_v_0);
 	lambda = sqrt(pow(lambda_zero,2.0)*pow(R0_bar/R_bar,3.0));	
 	bracket_factor = lambda*lambda*k*k/(a_cur*a_cur);
 	
@@ -86,19 +103,23 @@ int growth_function(double t, const double Dplus_vals[], double dDplus_dt[], voi
 
 
 //int Dplus_calc(int gravity, double k, double* zs, double* Dpluses)
-int Dplus_calc(int gravity, double k, double** zs, double** Dpluses) {
+int Dplus_calc(int gravity, double k, double** zs, double** Dpluses, BinInfo *z_binInfo, Parameters *params) {
 	double t_start, t_end, Dplus_a_start, Dplusdot_a_start, dt, t_curr, t_next;
 	double z_start, z_end, t0, lambda_zero, z_cur;
 	int status;
 	
+	//redshift-time relation reversed:	
+	z_to_t_workspace = gsl_integration_workspace_alloc(z_to_t_workspace_size);
+	Spline* redshift_reverse = prep_redshift_spline(z_binInfo, params);
+	
 	//can be done better - since now z_start has to be quite high. If z_start < 3, Do one run from z~3 to z_start, figure 
 	//out dplus, dplus dot at the redshift wanted, then use them again to get the dpluses correctly
-	z_start = z_max;
-	z_end = z_min;
-	t_start = z_to_t(z_start);	
-	t_end = z_to_t(z_end);
+	z_start = z_binInfo->xmax;
+	z_end = z_binInfo->xmin;
+	t_start = z_to_t(z_start, params);	
+	t_end = z_to_t(z_end, params);
 	t0 = t_start;	
-	dt = (t_end - t_start)/(double)(Dplus_bins - 1);	
+	dt = (t_end - t_start)/(double)(Dplus_bins - 1);
 	
 	//starting at a redshift where EdS applies, Dplus = (t/t0)^(2/3)
 	Dplus_a_start = 1.0;
@@ -123,9 +144,15 @@ int Dplus_calc(int gravity, double k, double** zs, double** Dpluses) {
 	}		
 	
 	double current_Dplus_values[2] = {Dplus_a_start, Dplusdot_a_start};
-	double parameters[] = {lambda_zero, k, t0};	
+	//double parameters[] = {lambda_zero, k, t0};	
+	Minim_Params *parameters = malloc(sizeof(*parameters));
+	parameters->lambda0 = lambda_zero;
+	parameters->k = k;
+	parameters->t0 = t0;
+	parameters->redshift_reverse = redshift_reverse;
+	parameters->cosmo_params = params;
 		
-	gsl_odeiv2_system sys = {growth_function, NULL, 2, &parameters}; //rk8pd
+	gsl_odeiv2_system sys = {growth_function, NULL, 2, parameters}; //rk8pd
 	gsl_odeiv2_driver * d = gsl_odeiv2_driver_alloc_y_new(&sys, gsl_odeiv2_step_rk8pd, dt, 1e-7, 0.0);		
 
 	t_curr = t_start;
@@ -135,7 +162,7 @@ int Dplus_calc(int gravity, double k, double** zs, double** Dpluses) {
 		//the next iteration goes from t_curr to t_next in some number of steps chosen by the driver
 		t_next = t_curr + dt;			
 		status = gsl_odeiv2_driver_apply(d, &t_curr, t_next, current_Dplus_values);
-		z_cur = t_to_z(t_curr);	
+		z_cur = t_to_z(t_curr, redshift_reverse);	
 		(*zs)[i] = z_cur;
 		(*Dpluses)[i] = current_Dplus_values[0];
 		
@@ -145,16 +172,19 @@ int Dplus_calc(int gravity, double k, double** zs, double** Dpluses) {
 		}	
 	}	
 	gsl_odeiv2_driver_free(d);
+	gsl_integration_workspace_free(z_to_t_workspace);
+	free(redshift_reverse);
+	free(parameters);	
 	return 0;
 }
 
-SplineInfo* Dplus_spline(int gravity, double k) {
+Spline* Dplus_spline(int gravity, double k, BinInfo *z_binInfo, Parameters *params) {
 
 	//freeing these arrays (pointers) gives bad behaviour afterwards. Initialize elsewhere?
 	double* zs = malloc((size_t)Dplus_bins * sizeof(*zs));
 	double* Dpluses = malloc((size_t)Dplus_bins * sizeof(*Dpluses));
 
-	Dplus_calc(gravity, k, &zs, &Dpluses);
+	Dplus_calc(gravity, k, &zs, &Dpluses, z_binInfo, params);
 	//starts from high z, goes to z = 0
 	for (int i = 0; i < Dplus_bins; i++) {
 	
@@ -162,6 +192,8 @@ SplineInfo* Dplus_spline(int gravity, double k) {
 			printf("Dplus %lf at index %d \n", Dpluses[i], i);
 			exit(0);
 		}
+		
+		//printf("z: %lf, Dplus: %lf, test: %lf \n", zs[i], Dpluses[i], params->H0);
 		
 		//normalise to 1 at z = 0
 		Dpluses[i] /= Dpluses[Dplus_bins - 1];
@@ -171,7 +203,7 @@ SplineInfo* Dplus_spline(int gravity, double k) {
 			exit(0);
 		}
 	}
-	SplineInfo* toReturn = input_spline_values(Dplus_bins, zs, Dpluses);	
+	Spline* toReturn = input_spline_values(Dplus_bins, zs, Dpluses, MEASURED);	
 	return toReturn;
 }
 

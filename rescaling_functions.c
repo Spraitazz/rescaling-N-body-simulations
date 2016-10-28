@@ -1,65 +1,7 @@
-SplineInfo_Extended* extend_spline_model(SplineInfo *spline) {
-	
-	SplineInfo_Extended *model_spline = malloc(sizeof(*model_spline));
-	double pk_loA, pk_hiA, pk_lon, pk_hin, xmin, xmax, xend_min, xstart_max;
-		
-	xmin = spline->xmin;
-	xmax = spline->xmax;
-	xend_min = exp(log(xmin) + 0.2 * (log(xmax) - log(xmin))); //10% of range, can vary this
-	xstart_max = xmax - 0.1 * (xmax - xmin);	
-	
-	powerlaw_regression(spline->lines, xmin, xend_min, 1.0, spline->x_vals, spline->y_vals, &pk_loA, &pk_lon);    
-    powerlaw_regression(spline->lines, xstart_max, xmax, 1.0, spline->x_vals, spline->y_vals, &pk_hiA, &pk_hin);
-    
-    model_spline->spline = spline;
-	model_spline->pk_hiA = pk_hiA;
-	model_spline->pk_loA = pk_loA;
-	model_spline->pk_hin = pk_hin;
-	model_spline->pk_lon = pk_lon;
-	model_spline->model = true;
-	return model_spline;
-}
-
-SplineInfo_Extended* extend_spline(SplineInfo *spline) {
-	SplineInfo_Extended* extended_spline = malloc(sizeof(*extended_spline));
-	extended_spline->spline = spline;
-	extended_spline->pk_hiA = 0.0;
-	extended_spline->pk_loA = 0.0;
-	extended_spline->pk_hin = 0.0;
-	extended_spline->pk_lon = 0.0;
-	extended_spline->model = false;
-	return extended_spline;
-}
-
-//uses spline from what's available + power laws at low and high k. (all here return VP(k))
-double splint_Pk_model(SplineInfo_Extended *pk_model, double k) {
-	double Pk;
-	if (pk_model->model == false) {
-		printf("asking to splint a model, but giving a non-model extended SplineInfo\n");
-		exit(0);
-	} else {
-		if (k < pk_model->spline->xmin) {
-			Pk = pk_model->pk_loA*pow(k, 3.0 + pk_model->pk_lon);		
-		} else if (k > pk_model->spline->xmax) {
-			Pk = pk_model->pk_hiA*pow(k, 3.0 + pk_model->pk_hin);		
-		} else {
-			Pk = splint_generic(pk_model->spline, k);
-		}
-	}
-	return Pk/volume;
-}
-
-double splint_Pk(SplineInfo_Extended *pk_spline, double k) {
-	if (pk_spline->model) {
-		return splint_Pk_model(pk_spline, k);
-	} else {
-		return splint_generic(pk_spline->spline, k)/volume;
-	}
-}
-
 //volume term comes from VP(k) used for plotting
-double delsq_lin(SplineInfo_Extended *pk_spline, double k) {
-	double Pk = splint_Pk(pk_spline, k);	
+double delsq_lin(Spline *Pk_spline, double k) {
+	double Pk = splint_Pk(Pk_spline, k);
+	//printf("k: %le, Pk: %le \n", k, Pk);	
 	return volume * Pk * pow(k, 3.0)/(2.0*pi*pi);
 }
 
@@ -70,9 +12,10 @@ double OLV(double k, void *params) {
 	R = parameters->R;
 	margin = 1e-6;	
 
-	delsq = delsq_lin(parameters->spline, k);
+	delsq = delsq_lin(parameters->Pk_spline, k);
 	if (delsq < 1e-10) {
 		//printf("delsq %lf at k %lf \n", delsq, k);
+		//exit(0);
 	}
 		
 	// if small, explicit taylor
@@ -94,14 +37,16 @@ double OLV(double k, void *params) {
 
 
 //integrates the overdensity linear variance function at a given r from k = 0 to infinity, or arbitrary chosen upper limit
-double integrate_OLV(double R, SplineInfo_Extended *pk_spline) {
+double integrate_OLV(double R, Spline *Pk_spline) {
 	double error, result, margin;
 	int errcode;	
-	OLV_parameters params = {pk_spline, R};	
+	OLV_parameters *params = malloc(sizeof(*params));
+	params->Pk_spline = Pk_spline;
+	params->R = R;	
 		
     gsl_function F;	
     F.function = &OLV;  
-    F.params = &params; 
+    F.params = params; 
     margin = 1e-7;    
 
     gsl_error_handler_t* old_handler;
@@ -143,22 +88,26 @@ double integrate_OLV(double R, SplineInfo_Extended *pk_spline) {
     		printf("the integral is divergent, or too slowly convergent to be integrated numerically. OLV integral, R: %lf, result: %lf \n", R, result);
     		exit(0);    
     		      
-    }    
+    }   
+     
+    free(params);
 	return result;
 }
 
 //prepares OLV using the R binning info (upper limit, lower limit, bin no), and the power spectrum spline (functions.c)
-SplineInfo* prep_variances(BinInfo *R_bin_info, SplineInfo_Extended *pk_spline) {
+Spline* prep_variances(BinInfo *R_bin_info, Spline *Pk_spline) {
 
-	double result, R;		
-
+	double result, R;	
 	double* Rs = malloc((size_t)R_bin_info->bins * sizeof(*Rs));
 	double* OLVs = malloc((size_t)R_bin_info->bins * sizeof(*OLVs));
 	int actual_data = 0;
 	
+	OLV_workspace = gsl_integration_workspace_alloc(OLV_workspace_size);
+	
 	for (int i = 0; i < R_bin_info->bins; i++) {		
-		R = bin_to_x(R_bin_info, i);				
-		result = integrate_OLV(R, pk_spline);
+		R = bin_to_x(R_bin_info, i);
+		result = integrate_OLV(R, Pk_spline);
+
 		if (result > 1e-10) {
 			Rs[i] = R;
 			OLVs[i] = result;
@@ -168,12 +117,15 @@ SplineInfo* prep_variances(BinInfo *R_bin_info, SplineInfo_Extended *pk_spline) 
 		}		
 	}	
 
-	SplineInfo* toReturn = input_spline_values(actual_data, Rs, OLVs);
+	
+	//if made from model Pk, can also extend??
+	gsl_integration_workspace_free(OLV_workspace);	
+	Spline* toReturn = input_spline_values(actual_data, Rs, OLVs, Pk_spline->model);
 	return toReturn;	
 }
 
 //DELETE ME 
-SplineInfo* prep_variances_test(BinInfo *R_bin_info, SplineInfo_Extended *pk_spline, double s_test) {	
+Spline* prep_variances_test(BinInfo *R_bin_info, Spline *Pk_spline, double s_test) {	
 
 	double result, R;
 
@@ -183,15 +135,15 @@ SplineInfo* prep_variances_test(BinInfo *R_bin_info, SplineInfo_Extended *pk_spl
 	
 	for (int i = 0; i < R_bin_info->bins; i++) {			
 		R = bin_to_x(R_bin_info, i);	
-		result = integrate_OLV(R/s_test, pk_spline);
+		result = integrate_OLV(R/s_test, Pk_spline);
 		if (result > 1e-10) {
 			Rs[i] = R;
 			OLVs[i] = result;	
 			actual_data += 1;
 		}
 	}
-	
-	SplineInfo* toReturn = input_spline_values(actual_data, Rs, OLVs);
+	printf("OLV test with model extension in prep_variances_test() \n");
+	Spline* toReturn = input_spline_values(actual_data, Rs, OLVs, MODEL);
 	return toReturn;	
 }
 //DELETE ME
@@ -202,14 +154,14 @@ double OLV_smoothed(double k, void *params) {
 	OLV_parameters *parameters = (OLV_parameters*)params;	
 	R_nl_this = parameters->R;	
 	
-	delsq = delsq_lin(parameters->spline, k);
+	delsq = delsq_lin(parameters->Pk_spline, k);
 	
 	return delsq * exp(-k*k*R_nl_this*R_nl_this) / pow(k, 3.0);
 }
 
-double expected_variance_smoothed(double R_nl_this, SplineInfo_Extended *pk_spline) {
+double expected_variance_smoothed(double R_nl_this, Spline *Pk_spline) {
 	double error, result;
-	OLV_parameters params = {pk_spline, R_nl_this}; 
+	OLV_parameters params = {Pk_spline, R_nl_this}; 
 	gsl_function F;	
     F.function = &OLV_smoothed;  
     F.params = &params;    
@@ -228,9 +180,10 @@ double delta_sq_int_func(double R, void *params) {
 	Dsq_Params *parameters = (Dsq_Params*)params;
 	s_cur = parameters->s;
 	z_var = parameters->z_var;
-	vary_z_cur = parameters->vary_z_current;	
+	vary_z_cur = parameters->vary_z_current;
+	BinInfo *z_binInfo = parameters->z_binInfo;	
 	
-	index = x_to_bin(rescaling_z_bin_info, z_var);
+	index = x_to_bin(z_binInfo, z_var);
 
 	if (vary_z_cur) {
 		sigma = sqrt(splint_generic(parameters->variances_varz[index], R/s_cur));	
@@ -262,7 +215,7 @@ double delta_sq_rms(const gsl_vector *inputs, void *params) {
 	z_var = gsl_vector_get(inputs, 1);		
 		
 	//dont want negative z.outside of redshift range -> not good, return maximum possible value
-	if (z_var < z_min || z_var > z_max) {
+	if (z_var < parameters->z_binInfo->xmin || z_var > parameters->z_binInfo->xmax) {
 		return 1.0;
 	} else {
 		
@@ -272,6 +225,7 @@ double delta_sq_rms(const gsl_vector *inputs, void *params) {
 		integral_params->vary_z_current = vary_z_cur;
 		integral_params->variance_const = parameters->variance_const;
 		integral_params->variances_varz = parameters->variances_varz;
+		integral_params->z_binInfo = parameters->z_binInfo;
 
 		gsl_function F;	
 		F.function = &delta_sq_int_func;
@@ -285,7 +239,7 @@ double delta_sq_rms(const gsl_vector *inputs, void *params) {
 	}
 }
 
-int dsq_multimin(bool vary_z_cur, double z_init, SplineInfo* variance_const, SplineInfo** variances_varz) {
+int dsq_multimin(bool vary_z_cur, double z_init, Spline* variance_const, Spline** variances_varz, BinInfo *z_binInfo) {
 		
 	size_t iter = 0;
 	int status;
@@ -308,6 +262,7 @@ int dsq_multimin(bool vary_z_cur, double z_init, SplineInfo* variance_const, Spl
 	dsq_parameters->R2_primed = R2_primed;
 	dsq_parameters->variance_const = variance_const;
 	dsq_parameters->variances_varz = variances_varz;
+	dsq_parameters->z_binInfo = z_binInfo;
 	
 	//inputs are the parameters along which the function is minimized
 	//param 1 - s, param 2 - z, initial guesses are 1 for scaling parameter, and z = z'	
@@ -318,7 +273,7 @@ int dsq_multimin(bool vary_z_cur, double z_init, SplineInfo* variance_const, Spl
 	//param 1 - ds, param 2 - dz
 	step_sizes = gsl_vector_alloc(variables);
 	gsl_vector_set(step_sizes, 0, 0.02);
-	gsl_vector_set(step_sizes, 1, rescaling_z_bin_info->dx);	
+	gsl_vector_set(step_sizes, 1, z_binInfo->dx);	
 
 	//the function to minimize	
 	dsq_func.n = variables;
@@ -368,19 +323,18 @@ int dsq_multimin(bool vary_z_cur, double z_init, SplineInfo* variance_const, Spl
 	return status;
 }
 
-/*
+
 //a is declared in main.c
-int scale_velocities(double s, double H, double H_primed, double a_primed) {
-	double fg, fg_primed;
-	//fg = d lng/ d lna
-	for (int i = 0; i < particle_no; i++) {
-		particles[i][3] = particles[i][3]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);
-		particles[i][4] = particles[i][4]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);
-		particles[i][5] = particles[i][5]*s*(H_primed*a_primed*fg_primed)/(H*a*fg);	
+int scale_velocities(double s, Particle_Catalogue *cat, Parameters *cur_params, Parameters *targ_params) {	
+	double scale_factor = s*((targ_params->H0)*z_to_a(targ_params->z)*(pow(targ_params->omega_m_0, targ_params->gamma)))/((cur_params->H0)*z_to_a(cur_params->z)*(pow(cur_params->omega_m_0, cur_params->gamma)));
+	for (int i = 0; i < cat->particle_no; i++) {
+		cat->particles[i].vx *= scale_factor;
+		cat->particles[i].vy *= scale_factor;
+		cat->particles[i].vz *= scale_factor;
 	}
 	return 0;
 }
-*/
+
 
 /*
 int prep_Dplus_kz(int gravity, BinInfo* zBins, BinInfo* kBins) {
@@ -409,20 +363,20 @@ int prep_Dplus_kz(int gravity, BinInfo* zBins, BinInfo* kBins) {
 }
 */
 
-SplineInfo* prep_Pk_constz(int gravity, double z_from, double z_to, SplineInfo *Pk_spline_in, BinInfo *k_bin_info) {
+Spline* prep_Pk_constz(int gravity, double z_from, double z_to, Spline *Pk_spline_in, BinInfo *k_bin_info, BinInfo *z_binInfo, Parameters *params) {
 	if (z_from < 0.0 || z_to < 0.0) {
 		printf("z < 0 in prep_Pk_constz. z from: %lf, z to: %lf \n", z_from, z_to);
 		exit(0);
 	}	
 	double k_cur, Pk_cur, Dplus_cur, Dplus_after;
-	SplineInfo* Dplus_tmp;		
+	Spline* Dplus_tmp;		
 	
-	double* ks = malloc((size_t)k_bin_info->bins * sizeof(*ks)); //THESE CANNOT BE ARRAYS, OTHERWISE C HAPPENS
+	double* ks = malloc((size_t)k_bin_info->bins * sizeof(*ks));
 	double* Pks = malloc((size_t)k_bin_info->bins * sizeof(*Pks));
 
 	if (gravity == GR) {
 		//Dplus wont depend on k, spline gives z vs Dplus
-		Dplus_tmp = Dplus_spline(GR, 0.0);
+		Dplus_tmp = Dplus_spline(GR, 0.0, z_binInfo, params);
 		Dplus_cur = splint_generic(Dplus_tmp, z_from);
 		Dplus_after = splint_generic(Dplus_tmp, z_to);
 		
@@ -441,14 +395,14 @@ SplineInfo* prep_Pk_constz(int gravity, double z_from, double z_to, SplineInfo *
 			Pks[j] = Pk_cur;
 		}
 		
-		//free(Dplus_tmp);			
+		free(Dplus_tmp);			
 	
 	} else if (gravity == F4 || gravity == F5 || gravity == F6) {
 		//Dplus depends on k		
 		for (int i = 0; i < k_bin_info->bins; i++) {
 			k_cur = bin_to_x(k_bin_info, i);
 			
-			Dplus_tmp = Dplus_spline(gravity, k_cur);
+			Dplus_tmp = Dplus_spline(gravity, k_cur, z_binInfo, params);
 			Dplus_cur = splint_generic(Dplus_tmp, z_from);			
 			Dplus_after = splint_generic(Dplus_tmp, z_to);
 			
@@ -471,10 +425,12 @@ SplineInfo* prep_Pk_constz(int gravity, double z_from, double z_to, SplineInfo *
 		exit(0);
 	}	
 
-	SplineInfo *toReturn = input_spline_values(k_bin_info->bins, ks, Pks);
+	Spline *toReturn = input_spline_values(k_bin_info->bins, ks, Pks, Pk_spline_in->model);
+	free(ks);
+	free(Pks);
 	return toReturn;
 }
-
+/*
 int generate_sigma_plots() {
 	int bins = 100;
 	int z_ind_init = x_to_bin(rescaling_z_bin_info, z_current);
@@ -516,4 +472,5 @@ int generate_sigma_plots() {
 	fclose(f);
 	return 0;
 }
+*/
 

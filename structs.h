@@ -53,34 +53,24 @@ typedef struct {
 } SplineInfo;
 
 typedef struct {
-	SplineInfo *spline;
+	SplineInfo *splineInfo;
 	double pk_loA;
 	double pk_hiA;
 	double pk_lon;
 	double pk_hin;
-	bool model;
-} SplineInfo_Extended;
+	int model;
+} Spline;
 
-typedef struct {
-	SplineInfo_Extended *spline;
-	double R;	
-} OLV_parameters;
 
-typedef struct {
-	bool vary_z_current;
-	double R1_primed;
-	double R2_primed;
-	SplineInfo* variance_const;
-	SplineInfo** variances_varz;
-} Multimin_Params;
 
-typedef struct {	
-	double s;
-	double z_var;
-	bool vary_z_current;
-	SplineInfo* variance_const;
-	SplineInfo** variances_varz;
-} Dsq_Params;
+/*
+typedef union {
+	SplineInfo *sp;
+	SplineInfo_Extended *sp_ext;
+} Spline;
+*/
+
+
 
 typedef struct {
 	double xmin;
@@ -91,11 +81,47 @@ typedef struct {
 } BinInfo;
 
 typedef struct {
-	double h;
 	double H0;
-	double omega_m;
-	double omega_v;// = 1.0 - omega_m;
-	double omega_r;
+	double omega_m_0;
+	double omega_v_0;// = 1.0 - omega_m;
+	double omega_r_0;
 	double omega;
-	double fg;	
+	double gamma; //f = omega_m ^ gamma
+	double z;	
 } Parameters;
+
+typedef struct {
+	Parameters *parameters;
+	Spline *variance;
+} Bias_Params;
+
+typedef struct {
+	Spline *Pk_spline;
+	double R;	
+} OLV_parameters;
+
+typedef struct {
+	bool vary_z_current;
+	double R1_primed;
+	double R2_primed;
+	Spline *variance_const;
+	Spline **variances_varz;
+	BinInfo *z_binInfo;
+} Multimin_Params;
+
+typedef struct {	
+	double s;
+	double z_var;
+	bool vary_z_current;
+	Spline *variance_const;
+	Spline **variances_varz;
+	BinInfo *z_binInfo;
+} Dsq_Params;
+
+typedef struct {
+	double lambda0;
+	double k;
+	double t0;
+	Spline *redshift_reverse;
+	Parameters *cosmo_params;
+} Minim_Params;

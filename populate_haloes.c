@@ -1,27 +1,3 @@
-/*
-int populateParticles(Particle** particles, int particle_no) {	
-	for (int i = 0; i < particle_no; i++) {
-		//Particle particle = malloc(sizeof(particle));
-			
-		//positions		
-		(*particles)[i].x = randomDouble(0.0, volume_limits[0]);	
-		(*particles)[i].y = randomDouble(0.0, volume_limits[1]);
-		(*particles)[i].z = randomDouble(0.0, volume_limits[2]);
-		
-		// velocities
-		(*particles)[i].vx = 0.0;	
-		(*particles)[i].vy = 0.0;
-		(*particles)[i].vz = 0.0;	
-		
-		// mass
-		(*particles)[i].mass = 0.0;
-		
-		//(*particles)[i] = particle;
-	}				
-	return 0;
-}
-*/
-
 Particle_Catalogue* populateHaloes_oneMass(int halo_no, double halo_mass) {	
 	Particle_Catalogue* toReturn = malloc(sizeof(*toReturn));
 	toReturn->particle_no = halo_no;
@@ -86,6 +62,44 @@ Particle_Catalogue* populateHaloes_twoMasses(double smallMass, double bigMass, i
 	return toReturn;	
 }
 
+
+
+Particle_Catalogue* populateParticles_crystalLattice(int particle_no) {
+	if (particle_no != cells[0]*cells[1]*cells[2]) {
+		printf("for lattice particle number should equal cell number\n");
+		exit(0);
+	}	
+	double cellSizes[3];
+	cellSizes[0] = volume_limits[0] / (double) cells[0];
+	cellSizes[1] = volume_limits[1] / (double) cells[1];
+	cellSizes[2] = volume_limits[2] / (double) cells[2];
+	
+	Particle_Catalogue* toReturn = malloc(sizeof(*toReturn));
+	toReturn->particle_no = particle_no;
+	Particle* particles = initParticles(particle_no);	
+	
+	//placing particle in center of cell
+	for (int i = 0; i < cells[0]; i++) {
+		for (int j = 0; j < cells[1]; j++) {
+			for (int k = 0; k < cells[2]; k++) {
+
+				particles[arr_ind(i,j,k)].x = ((double)i + 0.5) * cellSizes[0];
+				particles[arr_ind(i,j,k)].y = ((double)j + 0.5) * cellSizes[1];
+				particles[arr_ind(i,j,k)].z = ((double)k + 0.5) * cellSizes[2];
+								
+				// velocities
+				particles[arr_ind(i,j,k)].vx = 0.0;	
+				particles[arr_ind(i,j,k)].vy = 0.0;
+				particles[arr_ind(i,j,k)].vz = 0.0;	
+		
+				// mass
+				particles[arr_ind(i,j,k)].mass = 0.0;
+			}
+		}
+	}
+	toReturn->particles = particles;
+	return toReturn;
+}
 
 /*
 
@@ -181,39 +195,3 @@ int populateHaloes_catalogueMass(char inFile[]) {
 }
 */
 
-Particle_Catalogue* populateParticles_lattice(int particle_no) {
-	if (particle_no != cells[0]*cells[1]*cells[2]) {
-		printf("for lattice particle number should equal cell number\n");
-		exit(0);
-	}	
-	double cellSizes[3];
-	cellSizes[0] = volume_limits[0] / (double) cells[0];
-	cellSizes[1] = volume_limits[1] / (double) cells[1];
-	cellSizes[2] = volume_limits[2] / (double) cells[2];
-	
-	Particle_Catalogue* toReturn = malloc(sizeof(*toReturn));
-	toReturn->particle_no = particle_no;
-	Particle* particles = initParticles(particle_no);	
-	
-	//placing particle in center of cell
-	for (int i = 0; i < cells[0]; i++) {
-		for (int j = 0; j < cells[1]; j++) {
-			for (int k = 0; k < cells[2]; k++) {
-
-				particles[arr_ind(i,j,k)].x = ((double)i + 0.5) * cellSizes[0];
-				particles[arr_ind(i,j,k)].y = ((double)j + 0.5) * cellSizes[1];
-				particles[arr_ind(i,j,k)].z = ((double)k + 0.5) * cellSizes[2];
-								
-				// velocities
-				particles[arr_ind(i,j,k)].vx = 0.0;	
-				particles[arr_ind(i,j,k)].vy = 0.0;
-				particles[arr_ind(i,j,k)].vz = 0.0;	
-		
-				// mass
-				particles[arr_ind(i,j,k)].mass = 0.0;
-			}
-		}
-	}
-	toReturn->particles = particles;
-	return toReturn;
-}

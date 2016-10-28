@@ -2,6 +2,7 @@ Particle_Catalogue* input_catalogue_file(const char filename[], int skipLines, c
 
 	FILE *catalogue_input = fopen(filename, "r");
 	Particle_Catalogue* this_cat;
+	printf("\n PROBABLY FORGOT TO CHANGE VOLUME LIMITS REMINDER \n");
 	
 	if (catalogue_input == NULL) {
 		printf("\nerror opening %s in input_catalogue_file()\n", filename);

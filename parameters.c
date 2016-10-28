@@ -3,6 +3,7 @@ int set_params() {
 	//cosmology-specific parameters
 	rho_cosm = 2.78E+11; //[h^2 M_sol Mpc^-3]
 	//current cosmology
+	/*
 	h = 0.678; //dimensionless hubble parameter
 	H0 = 100.0*h; //[kms^-1 Mpc^-1]
 	omega_m_0 = 0.24;
@@ -14,6 +15,7 @@ int set_params() {
 	fg = pow(omega_m_0, 0.4);
 	
 	omega_m_primed = omega_m_0;
+	*/
 	
 	/*
 	Parameters current_params = {

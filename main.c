@@ -45,6 +45,9 @@
 #define F6 1113
 #define GR 1114
 
+#define MEASURED 6661
+#define MODEL 6662
+
 //my headers
 #include "structs.h"
 #include "main.h"
@@ -53,6 +56,7 @@
 #include "parameters.c"
 #include "memory.c"
 #include "functions.c"
+#include "splines.c"
 #include "populate_haloes.c"
 #include "power_spectrum.c"
 #include "catalogue_input.c"
@@ -60,13 +64,14 @@
 #include "runs.c"
 #include "covariance_matrices.c"
 #include "CubicSpline_double.c"
+#include "bias.c"
+#include "ZA.c"
 #include "rescaling.c"
 #include "RSD_Pk.c"
 #include "halo_model.c"
 #include "Dplus.c"
 #include "rescaling_functions.c"
-#include "ZA.c"
-#include "bias.c"
+
 //#include "HOD.c"
 //#include "tests.c"
 
@@ -107,6 +112,8 @@ int main(int argc, char **argv) {
 	cells[1] = 128;
 	cells[2] = 128;	
 	
+	printf("Expect folding to start around k_nyq/4 = %lf \n", (pi / ((volume_limits[0] / (double) cells[0]))/4.0));
+	
 	//allocate grid memory
 	initGrid();	
 	
@@ -124,15 +131,18 @@ int main(int argc, char **argv) {
 	//HOD RANDS STUFF	
 	set_params();
 	
+	
 	//covariance_sequence();
 	//HOD_main();
 	//biased_displacements();
 	//ZA_RSD();
 	//ST_bias();
+	rescale_randoms_model_to_model();
+	//print_cdm("/home/jonas/Testing_GR/code/Jonas/data/cdm.dat");
 
 	//rescale_testRun();
 	//rescale_model();
-	rescale_catalogue_to_model();
+	//rescale_catalogue_to_model();
 	//rescale_catalogue_to_catalogue();
 	exit(0);
 	
@@ -173,7 +183,7 @@ int main(int argc, char **argv) {
 		sprintf(in_final, in, i);
 		printf("run %d, in file: %s, out file: %s \n", i, in_final, out_final);
 		read_full_xyz(in_final, 1, mocks_format);
-		if (redshift_space) toRedshift(0.7);		
+		//if (redshift_space) toRedshift(0.7);		
 		//haloes_measure_Pk(out_final, fold_factor, NGP);	
 		
 		
